@@ -8,12 +8,13 @@ const source = fs.readFileSync(__dirname + "/../src/lang.pegjs", {
 var parser = pegjs.generate(source, {
   output: "source",
   format: "commonjs",
+  cache: true,
   plugins: [tspegjs],
   tspegjs: {
     noTslint: false,
     tslintIgnores: "rule1,rule2",
     customHeader:
-      'import { Block, For, Assign, UnaryOp, BoolOp, Call, Variable, Constant } from "./ast";',
+      'import { ArrayAccessor,ConditionalOp,ObjectAccessor,Define,Struct,Switch,SwitchCase,Block, Cast,Enum, If, DefineArray, Return, DefineFunc, DefineVar, Arg, For, Assign, UnaryOp, BoolOp, Call, Variable, Constant } from "./ast";',
   },
 });
 

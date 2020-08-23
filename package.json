@@ -12,6 +12,7 @@
   "dependencies": {
     "next": "9.5.2",
     "pegjs": "^0.10.0",
+    "prettier": "^2.0.5",
     "react": "16.13.1",
     "react-dom": "16.13.1"
   },
