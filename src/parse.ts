@@ -51,6 +51,7 @@ export function compile(source: string) {
   const ROPE_LEDS = 300;
   const ledBuffer = new Uint8Array(ROPE_LEDS * 3);
   const inputs = {
+    UINT_MAX: 65535,
     ROPE_LEDS,
     ledBuffer,
     strcmp(left: string, right: string) {

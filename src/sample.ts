@@ -419,14 +419,21 @@ export const SAMPLE = stripMargin(
     int length = min(particles[k].len, particles[k].age);
     int bright = particles[k].bright;
   
-    // Before particles have respawned they fade out
-    if (particles[k].respawn > 0)
+    // Young and dying particles fade in/out
+    if (collision_mode == COLLIDE_BOOM)
     {
-      if (particles[k].age > bright)
+      if (particles[k].respawn > 0)
       {
-        return;
+        if (particles[k].age > bright)
+        {
+          return;
+        }
+        bright -= particles[k].age;
       }
-      bright -= particles[k].age;
+      else
+      {
+        bright = min(particles[k].age, bright);
+      }
     }
   
     if (!particles[k].wrap)
@@ -447,7 +454,7 @@ export const SAMPLE = stripMargin(
       {
         hsv(
             (highlight - (particles[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
-            particles[k].hue, 255, (bright * (length - tail)) / length,
+            hue, 255, (bright * (length - tail)) / length,
             COLOR_ADD);
       }
     }
@@ -608,7 +615,10 @@ export const SAMPLE = stripMargin(
         }
       }
       point_render(k);
-      particles[k].age++;
+      if (particles[k].age < UINT_MAX)
+      {
+        particles[k].age++;
+      }
   
       if (particles[k].respawn > 0)
       {
@@ -640,7 +650,7 @@ export const SAMPLE = stripMargin(
         bool collided = k != j && ((prevPos < particles[j].pos && nextPos >= particles[j].pos) || (prevPos > particles[j].pos && nextPos <= particles[j].pos)) && abs((prevPos - nextPos) < POS_MAX / 2);
         if (
             collided &&
-            particles[k].age > 25 && particles[j].age > 25 &&
+            particles[k].age > 256 && particles[j].age > 256 &&
             particles[k].speed * particles[j].speed < 0 &&
             particles[j].respawn == 0)
         {

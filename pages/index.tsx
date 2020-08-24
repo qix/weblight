@@ -54,9 +54,14 @@ export default function Home() {
 
     const pixelCount = buffer.length / 3;
     for (let pixel = 0; pixel < pixelCount; pixel++) {
-      const color = `rgb(${buffer[pixel * 3 + 1]},${buffer[pixel * 3 + 0]},${
-        buffer[pixel * 3 + 2]
-      })`;
+      const color =
+        "rgb(" +
+        [
+          Math.max(32, buffer[pixel * 3 + 1]),
+          Math.max(32, buffer[pixel * 3 + 0]),
+          Math.max(32, buffer[pixel * 3 + 2]),
+        ].join(",") +
+        ")";
       ctx.fillStyle = color;
       ctx.fillRect(xCoord[pixel] - 2, yCoord[pixel] - 2, 4, 4);
     }
