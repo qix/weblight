@@ -36,11 +36,13 @@ export class Cast {
   ) {}
   transpile(ctx: Context) {
     // @todo: Proper casting
-    invariant(
-      this.type === "int" || this.type === "uint8_t",
-      "Expected int cast, got: " + this.type
-    );
-    return `parseInt(${this.expr.transpile(ctx)}, 10)`;
+    if (this.type === "int") {
+      return `Math.floor(${this.expr.transpile(ctx)})`;
+    } else if (this.type === "uint8_t") {
+      return `uint8(${this.expr.transpile(ctx)})`;
+    } else {
+      throw new Error("Unknown cast: " + this.type);
+    }
   }
 }
 
