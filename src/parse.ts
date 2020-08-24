@@ -32,7 +32,7 @@ function parse(source: string) {
   }
 }
 
-class Controller {
+export class Controller {
   constructor(
     readonly source: string,
     readonly size: number,

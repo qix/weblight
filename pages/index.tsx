@@ -1,7 +1,7 @@
 import Head from "next/head";
 import styles from "../styles/Home.module.css";
 import { useEffect, useState } from "react";
-import { compile } from "../src/parse";
+import { Controller, compile } from "../src/parse";
 import { generateCoords } from "../src/points";
 import { SAMPLE } from "../src/sample";
 import Split from "react-split";
