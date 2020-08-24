@@ -1,7 +1,10 @@
 import * as fs from "fs";
 import { Location } from "./ast";
 import { parse as pegParse, SyntaxError } from "./lang";
-import * as prettier from "prettier";
+import prettier from "prettier/standalone";
+import prettierBabel from "prettier/parser-babel";
+import { Context } from "./context";
+import { gamma8, gamma8_floor, gamma8_partial } from "./gamma";
 
 function sourceArrow(source: string, location: Location): string {
   const { start, end } = location;
@@ -30,7 +33,27 @@ function parse(source: string) {
   }
 }
 
-const ast = parse(`
+const SOURCE = `
+
+enum MODE
+{
+  MODE_SET = 0,
+  MODE_ADD = 1,
+  MODE_BLEND = 2,
+};
+
+unsigned int state_loop = 0;
+unsigned int state_incr = 1;
+unsigned int state = 0;
+int fade_speed = 16;
+void rope_fade(int amount)
+{
+  for (int k = 0; k < ROPE_TOTAL * 3; k++)
+  {
+    ledBuffer[k] = ledBuffer[k] > amount ? ledBuffer[k] - amount : 0;
+  }
+}
+
 
 uint8_t blend(float amount, int a, int b) {
     float af = a / 255.0;
@@ -163,7 +186,7 @@ uint8_t blend(float amount, int a, int b) {
   }
   
   void chase_setup(ChaseMode mode);
-  void chase_message(char *message) {
+  void message(char *message) {
     if (strcmp(message, "LIGHT") == 0) {
       switch_light(true);
     } else if (strcmp(message, "ON") == 0) {
@@ -234,6 +257,7 @@ uint8_t blend(float amount, int a, int b) {
     if (mode == OFF) {
       fade_speed = 256;
     } else if (mode == CHASE) {
+        println("Chase setup CHASE");
       for (int k = 0; k < CHASE_POINTS; k++) {
         points[k].pos = random(POS_SCALE * ROPE_LEDS);
         points[k].hue = random(360);
@@ -284,7 +308,7 @@ uint8_t blend(float amount, int a, int b) {
   
   void point_render(int k) {
     int hue = points[k].hue;
-    int highlight = points[k].pos / POS_SCALE;
+    int highlight = (int)(points[k].pos / POS_SCALE);
     int length = points[k].len;
   
     if (!points[k].wrap) {
@@ -296,8 +320,12 @@ uint8_t blend(float amount, int a, int b) {
     }
   
   
+    println(color_mode);
     if (color_mode == HSV) {
+        println("HSV");
       for (int tail = 0; tail < length; tail++) {
+          println("POINT");
+        println((highlight - (points[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS);
         hsv(
           (highlight - (points[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
           points[k].hue, 255, (points[k].bright * (length - tail)) / length,
@@ -305,6 +333,7 @@ uint8_t blend(float amount, int a, int b) {
         );
       }
     } else if (color_mode == RGB) {
+        println("POINT RENDER");
       for (int tail = 0; tail < length; tail++) {
         int bright = (points[k].bright * (length - tail)) / length;
         rgb(
@@ -331,6 +360,7 @@ uint8_t blend(float amount, int a, int b) {
       }
     }
   
+    println(chase_mode);
     if (chase_mode == PULSE) {
       int pulse = 0;
       if (state < 256) {
@@ -437,32 +467,79 @@ uint8_t blend(float amount, int a, int b) {
     }
   }
   
+  void step(void) {
+      chase();
+  }
 
-`);
+`;
 
-const transpiled = ast.statements.map((s) => s.transpile()).join("\n");
+class Controller {
+  constructor(
+    readonly size: number,
+    readonly ledBuffer: Uint8Array,
+    readonly step: () => void,
+    readonly message: (input: string) => void
+  ) {}
+}
 
-console.log(transpiled);
-console.log("======================================");
+export function compile() {
+  const ctx = new Context();
+  const ast = parse(SOURCE);
+  const transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
 
-const inputs = {
-  ROPE_START: 0,
-  ledBuffer: new Uint8Array(16),
-};
+  const ROPE_START = 25;
+  const ROPE_END = 300 - 1;
+  const ROPE_LEDS = ROPE_END - ROPE_START + 1;
+  const ledBuffer = new Uint8Array(ROPE_LEDS * 3);
+  const inputs = {
+    ROPE_START,
+    ROPE_END,
+    ROPE_LEDS,
+    ROPE_TOTAL: 300,
+    ledBuffer,
+    strcmp(left: string, right: string) {
+      return left.localeCompare(right);
+    },
+    random(max: number) {
+      return Math.floor(Math.random() * max);
+    },
+    rope_clear() {
+      ledBuffer.fill(0);
+    },
+    gamma8,
+    gamma8_floor,
+    gamma8_partial,
+    min(a: number, b: number) {
+      return Math.min(a, b);
+    },
+    max(a: number, b: number) {
+      return Math.max(a, b);
+    },
+    println(line: string) {
+      console.log(line);
+    },
+  };
 
-const stepArgs = Object.keys(inputs).sort().join(",");
-const header = `(function() { return function step(${stepArgs}) {`;
-const footer = `rgb(0, 255, 0, 0); }})()`;
-const code = prettier.format(header + transpiled + footer, { parser: "babel" });
-console.log(code);
+  const stepArgs = Object.keys(inputs).sort().join(",");
+  const header = `
+    (function() {
+        return function(${stepArgs}) {`;
+  const footer = `
+            return { step, message };
+        }
+    })()`;
+  const code = prettier.format(header + transpiled + footer, {
+    parser: "babel",
+    plugins: [prettierBabel],
+  });
+  console.log(code);
 
-const step = eval(code);
-console.log("======================================");
+  const build = eval(code);
+  const { step, message } = build(
+    ...Object.keys(inputs)
+      .sort()
+      .map((k) => inputs[k])
+  );
 
-step(
-  ...Object.keys(inputs)
-    .sort()
-    .map((k) => inputs[k])
-);
-
-console.log(inputs.ledBuffer);
+  return new Controller(ROPE_LEDS, ledBuffer, step, message);
+}

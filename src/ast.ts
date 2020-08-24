@@ -1,8 +1,15 @@
-function invariant(test: any, message: string): asserts test is true {
-  if (!test) {
-    throw new Error(message);
-  }
-}
+import { Context } from "./context";
+import { invariant } from "./invariant";
+
+const STRUCT_JS_TYPES = {
+  uint8_t: "Uint8Array",
+};
+
+const DEFAULTS = {
+  int: 0,
+  "char*": "",
+  bool: false,
+};
 
 export interface Location {
   start: {
@@ -17,8 +24,8 @@ export interface Location {
 
 export class Return {
   constructor(readonly expr: Expr | null, readonly location: Location) {}
-  transpile() {
-    return "return " + (this.expr ? this.expr.transpile() : "");
+  transpile(ctx: Context) {
+    return "return " + (this.expr ? this.expr.transpile(ctx) : "");
   }
 }
 export class Cast {
@@ -27,8 +34,13 @@ export class Cast {
     readonly expr: Expr,
     readonly location: Location
   ) {}
-  transpile() {
-    return `cast(${JSON.stringify(this.type)}, ${this.expr.transpile()})`;
+  transpile(ctx: Context) {
+    // @todo: Proper casting
+    invariant(
+      this.type === "int" || this.type === "uint8_t",
+      "Expected int cast, got: " + this.type
+    );
+    return `parseInt(${this.expr.transpile(ctx)}, 10)`;
   }
 }
 
@@ -38,8 +50,8 @@ export class Define {
     readonly expr: Expr,
     readonly location: Location
   ) {}
-  transpile() {
-    return `const ${this.id} = ${this.expr.transpile()};`;
+  transpile(ctx: Context) {
+    return `const ${this.id} = ${this.expr.transpile(ctx)};`;
   }
 }
 
@@ -50,10 +62,10 @@ export class Switch {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
-      `switch(${this.expr.transpile()}){` +
-      this.cases.map((c) => c.transpile()).join("\n") +
+      `switch(${this.expr.transpile(ctx)}){` +
+      this.cases.map((c) => c.transpile(ctx)).join("\n") +
       `}`
     );
   }
@@ -66,9 +78,9 @@ export class SwitchCase {
     readonly location: Location
   ) {}
 
-  transpile() {
-    return `case (${this.expr.transpile()}): ${this.statements
-      .map((s) => s.transpile() + ";")
+  transpile(ctx: Context) {
+    return `case (${this.expr.transpile(ctx)}): ${this.statements
+      .map((s) => s.transpile(ctx) + ";")
       .join("\n")}`;
   }
 }
@@ -94,8 +106,10 @@ export class BoolOp {
     readonly location: Location
   ) {}
 
-  transpile() {
-    return "(" + this.left.transpile() + this.op + this.right.transpile() + ")";
+  transpile(ctx: Context) {
+    return (
+      "(" + this.left.transpile(ctx) + this.op + this.right.transpile(ctx) + ")"
+    );
   }
 }
 
@@ -107,14 +121,14 @@ export class ConditionalOp {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
       "(" +
-      this.test.transpile() +
+      this.test.transpile(ctx) +
       "?" +
-      this.truthy.transpile() +
+      this.truthy.transpile(ctx) +
       ":" +
-      this.falsy.transpile() +
+      this.falsy.transpile(ctx) +
       ")"
     );
   }
@@ -131,27 +145,37 @@ export class DefineArray {
     invariant(size || values.length, "Either size or values must be provided");
   }
 
-  transpile() {
+  transpile(ctx: Context) {
     let init: string | null = null;
     if (this.values) {
       init = this.values
         .map((val) => {
-          return val.transpile();
+          return val.transpile(ctx);
         })
         .join(",");
     }
 
     let value: string;
-    if (this.type === "uint8_t") {
+
+    if (STRUCT_JS_TYPES.hasOwnProperty(this.type)) {
+      const jsType = STRUCT_JS_TYPES[this.type];
       if (this.values) {
-        value = `new Uint8Array([${init}])`;
+        value = `new ${jsType}([${init}])`;
       } else {
-        value = `new Uint8Array(${this.size.transpile()})`;
+        value = `new ${jsType}(${this.size.transpile(ctx)})`;
       }
     } else if (this.values) {
       value = `[${init}]`;
     } else {
-      value = `new Array(${this.size.transpile()})`;
+      invariant(
+        ctx.structures.hasOwnProperty(this.type),
+        "Unknown array type: " + this.type
+      );
+
+      const struct = ctx.structures[this.type].getDefault();
+      value = `Array.from(Array(${this.size.transpile(
+        ctx
+      )}), () => (${JSON.stringify(struct)}))`;
     }
     return `const ${this.id} = ${value}`;
   }
@@ -166,11 +190,15 @@ export class DefineFunc {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
+    if (!this.block) {
+      // pre-definition
+      return "";
+    }
     return (
       `function ${this.id}(` +
-      this.args.map((arg) => arg.transpile()).join(",") +
-      `) ${this.block.transpile()}`
+      this.args.map((arg) => arg.transpile(ctx)).join(",") +
+      `) ${this.block.transpile(ctx)}`
     );
   }
 }
@@ -184,24 +212,45 @@ export class DefineVar {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     const keyword = this.constant ? "const" : "let";
     return (
       `${keyword} ${this.id}` +
-      (this.value ? `= ${this.value.transpile()}` : "")
+      (this.value ? `= ${this.value.transpile(ctx)}` : "")
     );
   }
 }
 
+export type StructArgs = { [arg: string]: string };
+
 export class Struct {
   constructor(
     readonly name: string,
-    readonly assignments: Assign[],
+    readonly vars: DefineVar[],
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
+    invariant(
+      !ctx.structures.hasOwnProperty(this.name),
+      "Duplicate struct: " + this.name
+    );
+
+    ctx.structures[this.name] = this;
+
     return "";
+  }
+
+  getDefault() {
+    return Object.fromEntries(
+      this.vars.map((v) => {
+        invariant(
+          DEFAULTS.hasOwnProperty(v.type),
+          "Unknown struct type: " + v.type
+        );
+        return [v.id, DEFAULTS[v.type]];
+      })
+    );
   }
 }
 
@@ -212,10 +261,10 @@ export class Enum {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return this.assignments
       .map((a) => {
-        return `const ${a.var_.transpile()} = ${a.expr.transpile()};`;
+        return `const ${a.var_.transpile(ctx)} = ${a.expr.transpile(ctx)};`;
       })
       .join("\n");
   }
@@ -229,9 +278,10 @@ export class Arg {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
-      this.id + (this.defaultExpr ? " = " + this.defaultExpr.transpile() : "")
+      this.id +
+      (this.defaultExpr ? " = " + this.defaultExpr.transpile(ctx) : "")
     );
   }
 }
@@ -239,25 +289,39 @@ export class Arg {
 export class UnaryOp {
   constructor(
     readonly expr: Expr,
-    readonly op: "X++" | "X--" | "++X" | "--X" | "!X",
+    readonly op:
+      | "X++"
+      | "X--"
+      | "++X"
+      | "--X"
+      | "!"
+      | "&"
+      | "*"
+      | "+"
+      | "-"
+      | "~",
     readonly location: Location
   ) {}
 
-  transpile() {
-    return "(" + this.op.replace("X", `(${this.expr.transpile()})`) + ")";
+  transpile(ctx: Context) {
+    const opStr = this.op.includes("X") ? this.op : this.op + "X";
+    return "(" + opStr.replace("X", `(${this.expr.transpile(ctx)})`) + ")";
   }
 }
 
 export class Call {
   constructor(
-    readonly func: string,
+    readonly func: Expr,
     readonly args: Expr[],
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
-      this.func + "(" + this.args.map((a) => a.transpile()).join(",") + ")"
+      this.func.transpile(ctx) +
+      "(" +
+      this.args.map((a) => a.transpile(ctx)).join(",") +
+      ")"
     );
   }
 }
@@ -269,44 +333,48 @@ export class Assign {
     readonly location: Location
   ) {}
 
-  transpile() {
-    return this.var_.transpile() + "=" + this.expr.transpile();
+  transpile(ctx: Context) {
+    return this.var_.transpile(ctx) + "=" + this.expr.transpile(ctx);
   }
 }
 
 export type Expr = UnaryOp | BoolOp | Variable | Constant;
 
 export class Variable {
-  constructor(
-    readonly id: string,
-    readonly accessors: Accessor[],
-    readonly location: Location
-  ) {}
+  constructor(readonly id: string, readonly location: Location) {}
 
-  transpile() {
-    return this.id + this.accessors.map((a) => a.transpile()).join("");
+  transpile(ctx: Context) {
+    return this.id;
   }
 }
 
 export type Accessor = ObjectAccessor | ArrayAccessor;
 export class ObjectAccessor {
-  constructor(readonly id: string, readonly location: Location) {}
+  constructor(
+    readonly obj: Expr,
+    readonly id: string,
+    readonly location: Location
+  ) {}
 
-  transpile() {
-    return `.${this.id}`;
+  transpile(ctx: Context) {
+    return `${this.obj.transpile(ctx)}.${this.id}`;
   }
 }
 export class ArrayAccessor {
-  constructor(readonly expr: Expr, readonly location: Location) {}
+  constructor(
+    readonly obj: Expr,
+    readonly expr: Expr,
+    readonly location: Location
+  ) {}
 
-  transpile() {
-    return `[${this.expr.transpile()}]`;
+  transpile(ctx: Context) {
+    return `${this.obj.transpile(ctx)}[${this.expr.transpile(ctx)}]`;
   }
 }
 
 export class Constant {
   constructor(readonly value: any, readonly location: Location) {}
-  transpile() {
+  transpile(ctx: Context) {
     return JSON.stringify(this.value);
   }
 }
@@ -320,13 +388,13 @@ export class For {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
       `for(` +
       [this.init, this.test, this.step]
-        .map((e) => (e ? e.transpile() : ""))
+        .map((e) => (e ? e.transpile(ctx) : ""))
         .join(";") +
-      `${this.block.transpile()}`
+      `)${this.block.transpile(ctx)}`
     );
   }
 }
@@ -339,12 +407,12 @@ export class If {
     readonly location: Location
   ) {}
 
-  transpile() {
+  transpile(ctx: Context) {
     return (
       `if ` +
-      `(${this.test.transpile()})` +
-      `${this.block.transpile()}` +
-      (this.elseStatement ? " else " + this.elseStatement.transpile() : "")
+      `(${this.test.transpile(ctx)})` +
+      `${this.block.transpile(ctx)}` +
+      (this.elseStatement ? " else " + this.elseStatement.transpile(ctx) : "")
     );
   }
 }
@@ -352,11 +420,10 @@ export class If {
 export class Block {
   constructor(readonly statements: Statement[], readonly location: Location) {}
 
-  transpile() {
-    console.log(this.statements);
+  transpile(ctx: Context) {
     return (
       "{" +
-      this.statements.map((stmt) => stmt.transpile() + ";").join("\n") +
+      this.statements.map((stmt) => stmt.transpile(ctx) + ";").join("\n") +
       "}"
     );
   }

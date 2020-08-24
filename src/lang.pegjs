@@ -30,9 +30,9 @@ ClosedStatement = _? statement:Statement _? ";" {
     return statement;
 }
 
-Statement = Return / Assignment / Enum / Struct / DefineArray / DefineVar / Expr;
+Statement = Return / Enum / Struct / DefineArray / DefineVar / Expr;
 
-Enum = "enum" _ name:Id _? "{" _? first:Assignment rest:(_? "," _? Assignment)* _? ","? _? "}" {
+Enum = "enum" _ name:Id _? "{" _? first:SimpleAssign rest:(_? "," _? SimpleAssign)* _? ","? _? "}" {
     return new Enum(name, [first, ...rest.map(r => r[3])], location());
 }
 
@@ -77,7 +77,9 @@ Arg = type:Type _ star:"*"? id:Id defaultExpr:(_? "=" _? expr:Expr)? {
     return new Arg(type + (star ?? ''), id, defaultExpr ? defaultExpr[3] : null, location());
 }
 
-Type = "char" / "void" / "uint8_t" / "float" / "int" / Id;
+Type = ("char" / "void" / "uint8_t" / "float" / ("unsigned" _)? "int" / Id) {
+    return text();
+};
 
 Define = "#define" _ id:Id _ expr:Expr [\n] {
     return new Define(id, expr, location());
@@ -105,34 +107,49 @@ SwitchCase = _? "case" _ expr:Expr _? ":" statements:BlockStatement* {
     return new SwitchCase(expr, statements, location());
 }
 
-Assignment = v:Variable _? "=" ?_ expr:Expr {
-    return new Assign(v, expr, location());
-};
+PrimaryExpr = Variable / Literal / SubExpr;
 
-PrimaryExpr
-   = Id
-    / Literal
-    / "(" Expr ")"
+// {@todo} / "(" TypeName ")" "{" InitializerList ","? "}"
+// {@todo}: mulitple accessors
+PostfixExpr = expr:PrimaryExpr post:PostfixOperator* {
+    let rv = expr;
+    post.forEach(cb => {
+        rv = cb(rv);
+    });
+    return rv;
+}
 
-PostfixExpr
-   = ( PrimaryExpr
-      // @TODO / "(" TypeName ")" "{" InitializerList ","? "}"
-      )
-      ( "[" _? Expr _? "]"
-      / "(" _? ExprList? _? ")"
-      / "." Id
-      / "->" Id
-      / "++"
-      / "--"
-      )*
+PostfixOperator = PostIncr / ObjAccessor / ArrAccessor / CallExpr
+PostIncr = _? op:("++" / "--") {
+  return expr => new UnaryOp(expr, ('X' + op) as ("X++" | "X--"), location());
+}
+
+ObjAccessor = _? ("." / "->") _? id:Id {
+  return obj => new ObjectAccessor(obj, id, location());
+}
+  
+ArrAccessor = _? "[" _? expr:Expr _? "]" {
+  return obj => new ArrayAccessor(obj, expr, location());
+}
+  
+CallExpr = _? "(" _? args:ExprList? _? ")" {
+  return obj => new Call(obj, args ?? [], location());
+}
+
 
 UnaryExpr
   = PostfixExpr
-  / "++" UnaryExpr
-  / "--" UnaryExpr
-  / ("&" / "*" / "+" / "-" / "~" / "!") CastExpr
-  / "sizeof" (UnaryExpr / "(" TypeName ")" )
+  / PreIncr
+  / PreUnary
+//  {@todo} "sizeof" (UnaryExpr / "(" TypeName ")" )
 
+PreIncr = op:("++" / "--") _? expr:UnaryExpr {
+  return new UnaryOp(expr, (op + 'X') as ("++X" | "--X"), location());
+}
+
+PreUnary = op:("&" / "*" / "+" / "-" / "~" / "!") expr:CastExpr {
+  return new UnaryOp(expr, op, location());
+}
 
 CastExpr = Cast / UnaryExpr
 Cast = "(" _? type:Type _? ")" _? expr:CastExpr {
@@ -227,6 +244,16 @@ ConditionalExpr = first:LogicOrExpr rest:(_? "?" _? Expr _? ":" _? LogicOrExpr)*
   return rv;
 }
 
+
+
+SimpleAssign = v:Variable _? "=" _? expr:Expr {
+    return new Assign(v, expr, location());
+};
+
+Variable = id:Id {
+    return new Variable(id, location());
+}
+
 Assigment = left:UnaryExpr _? op:(
     "=" / "*=" / "/=" / "%=" / "+=" / "-=" / "<<=" / ">>=" / "&=" / "^=" / "|="
 ) _? right:AssignmentExpr {
@@ -235,68 +262,10 @@ Assigment = left:UnaryExpr _? op:(
 AssignmentExpr = Assigment / ConditionalExpr;
 
 
-// @TODO
+// {@todo}
 TypeName = Id
 
 Expr = AssignmentExpr
-
-Conditional = ConditionalOp / BoolExpr;
-
-ConditionalOp = test:BoolExpr _? "?" _? truthy:Expr _? ":" _? falsy:Expr {
-  return new ConditionalOp(test, truthy, falsy, location());
-}
-
-BoolExpr = BinaryBoolExpr / UnaryBoolExpr;
-BinaryBoolExpr = left:UnaryBoolExpr _ op:("&&"i / "||"i) _ right:BoolExpr {
-    return new BoolOp(left, op, right, location());
-}
-
-UnaryBoolExpr = PostUnaryOp / BoolTerm;
-
-PostUnaryOp = expr:PreUnary _? op:("++" / "--") {
-  return new UnaryOp(expr, ('X' + op) as ("X++" | "X--"), location());
-}
-
-PreUnary = PreUnaryOp / BoolTerm;
-
-PreUnaryOp = op:("!" / "++" / "--") _? expr:BoolTerm {
-  return new UnaryOp(expr, (op + 'X') as ("!X" | "++X" | "--X"), location());
-}
-
-BoolTerm = BinaryLogicalExpr / LogicalTerm
-
-BinaryLogicalExpr = left:LogicalTerm _? op:("==" / "!=" / ">=" / "<=" / ">" / "<") _? right:LogicalTerm {
-  return new BoolOp(left, op, right, location());
-}
-
-LogicalTerm = BinaryArithmeticExpr / ArithmeticTerm
-
-ArithmeticExpr = BinaryArithmeticExpr / ArithmeticTerm
-BinaryArithmeticExpr = left:ArithmeticTerm _? op:("<<" / ">>" / "+" / "-") _? right:ArithmeticExpr {
-  return new BoolOp(left, op, right, location());
-}
-ArithmeticTerm = HighArithmeticExpr
-
-HighArithmeticExpr = BinaryHighArithmeticExpr / HighArithmeticTerm
-BinaryHighArithmeticExpr = left:HighArithmeticTerm _? op:("*" / "/" / "%") _? right:HighArithmeticExpr {
-  return new BoolOp(left, op, right, location());
-}
-HighArithmeticTerm = CallExpr / SubExpr / Literal / Variable
-CallExpr = "call()";
-
-Variable = id:Id accessors:(Accessor*) {
-    return new Variable(id, accessors, location());
-}
-
-Accessor = ObjectAccessor / ArrayAccessor;
-
-ObjectAccessor = "." id:Id {
-    return new ObjectAccessor(id, location());
-}
-
-ArrayAccessor = "[" _? expr:Expr _? "]" {
-    return new ArrayAccessor(expr, location());
-}
 
 ExprList = first:Expr rest:(_? "," _? Expr)* {
   return [first, ...rest.map(item => item[3])];
