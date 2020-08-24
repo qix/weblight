@@ -1,98 +1,113 @@
 import Head from "next/head";
+import dynamic from "next/dynamic";
+
 import styles from "../styles/Home.module.css";
-import { useEffect, useState } from "react";
-import { Controller, compile, sourceArrow } from "../src/parse";
+import { useEffect, useState, useRef } from "react";
 import { generateCoords } from "../src/points";
 import { SAMPLE } from "../src/sample";
-import Split from "react-split";
+import { Request, Response } from "../workers/compile";
 
-let controller: Controller;
-let compiledSource: string = "";
+import Split from "react-split";
+import { invariant } from "../src/invariant";
+const MonacoEditor = dynamic(import("react-monaco-editor"), { ssr: false });
 
 export default function Home() {
+  const worker = useRef<Worker>();
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const lastSource = useRef<string>(null);
+
   const [source, setSource] = useState(SAMPLE);
-  const [message, setMessage] = useState("CHASE");
+  const [message, setMessage] = useState("");
   const [compileOutput, setCompileOutput] = useState("Compiling...");
 
   function recompile() {
     setCompileOutput("Compiling...");
-    compiledSource = source;
-    try {
-      controller = compile(source);
-      controller.message(message);
-      setCompileOutput("Compilation successful!");
-    } catch (err) {
-      let message = err.stack;
-      if (err.location) {
-        message =
-          "Error on line " +
-          err.location.start.line +
-          "\n" +
-          sourceArrow(source, err.location) +
-          "\n\n" +
-          message;
-      }
-      setCompileOutput(message);
-    }
+    lastSource.current = source;
+    req({ type: "compile", source });
   }
 
-  if (!controller || compiledSource !== source) {
+  if (lastSource.current !== source && worker.current) {
     recompile();
   }
 
-  function updateSource(evt) {
-    setSource(evt.target.value);
-  }
-
-  function sendMessage() {
-    message.split(" ").map((word) => {
-      controller.message(word.toUpperCase());
-    });
-  }
   function updateMessage(evt) {
     setMessage(evt.target.value);
   }
 
+  function req(request: Request) {
+    worker.current.postMessage(request);
+  }
+
+  function render(buffer: Uint8Array) {
+    const ctx = canvas.current.getContext("2d");
+    const width = canvas.current.clientWidth;
+    const height = canvas.current.clientHeight;
+
+    if (canvas.current.width !== width || canvas.current.height !== height) {
+      canvas.current.width = width;
+      canvas.current.height = height;
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    const { xCoord, yCoord } = generateCoords(width, height);
+
+    const pixelCount = buffer.length / 3;
+    for (let pixel = 0; pixel < pixelCount; pixel++) {
+      const color = `rgb(${buffer[pixel * 3 + 1]},${buffer[pixel * 3 + 0]},${
+        buffer[pixel * 3 + 2]
+      })`;
+      ctx.fillStyle = color;
+      ctx.fillRect(xCoord[pixel] - 2, yCoord[pixel] - 2, 4, 4);
+    }
+  }
+
   useEffect(() => {
+    invariant(!worker.current, "Worker created twice");
+    worker.current = new Worker("../workers/compile", { type: "module" });
+    worker.current.onmessage = (event) => {
+      const res = event.data as Response;
+      if (res.type === "render") {
+        render(res.buffer);
+      } else if (res.type === "compileOkay") {
+        if (res.source === lastSource.current) {
+          setCompileOutput("Compile successful!");
+        }
+      } else if (res.type === "compileError") {
+        if (res.source === lastSource.current) {
+          setCompileOutput(res.message);
+        }
+      } else {
+        console.log("Unknown webworker message:", res);
+      }
+    };
+    const urlParams = new URLSearchParams(window.location.search);
+    const defaultMode = urlParams.get("mode") || "CHASE";
     recompile();
+    setMessage(defaultMode);
+    req({ type: "message", message: defaultMode });
 
-    const canvas: HTMLCanvasElement = document.getElementById(
-      "canvas"
-    ) as HTMLCanvasElement;
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.current.getContext("2d");
     ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, canvas.current.width, canvas.current.height);
 
-    const interval = setInterval(() => {
-      const width = canvas.clientWidth;
-      const height = canvas.clientHeight;
-
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-        ctx.fillStyle = "black";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-
-      const { xCoord, yCoord } = generateCoords(canvas.width, canvas.height);
-
-      controller.step();
-
-      for (let pixel = 0; pixel < controller.size; pixel++) {
-        const color = `rgb(${controller.ledBuffer[pixel * 3 + 1]},${
-          controller.ledBuffer[pixel * 3 + 0]
-        },${controller.ledBuffer[pixel * 3 + 2]})`;
-        ctx.fillStyle = color;
-        ctx.fillRect(xCoord[pixel] - 2, yCoord[pixel] - 2, 4, 4);
-      }
-    }, 25);
-    return () => clearInterval(interval);
+    return () => {
+      worker.current.terminate();
+      worker.current = null;
+    };
   }, []);
 
   return (
-    <main className={styles.main}>
+    <main
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        width: "100%",
+        height: "100%",
+      }}
+    >
       <Head>
-        <title>Create Next App</title>
+        <title>Weblight</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <Split
@@ -102,8 +117,9 @@ export default function Home() {
         })}
         gutterStyle={(dimension, gutterSize) => ({
           "flex-basis": `${gutterSize}px`,
+          cursor: "ew-resize",
         })}
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: "100%", height: "100%", display: "flex" }}
       >
         <Split
           direction="vertical"
@@ -112,20 +128,40 @@ export default function Home() {
           })}
           gutterStyle={(dimension, gutterSize) => ({
             "flex-basis": `${gutterSize}px`,
+            cursor: "ns-resize",
           })}
-          style={{ flexDirection: "column", height: "100%" }}
+          style={{ flexDirection: "column", height: "100%", display: "flex" }}
           sizes={[70, 30, 0]}
           minSize={[150, 60, 20]}
         >
-          <textarea
-            id="source"
-            value={source}
-            onChange={updateSource}
-            style={{ flexGrow: 1 }}
-          ></textarea>
+          <div>
+            <MonacoEditor
+              value={source}
+              onChange={setSource}
+              language="cpp"
+              theme="vs-dark"
+              editorDidMount={() => {
+                (window as any).MonacoEnvironment.getWorkerUrl = (
+                  moduleId,
+                  label
+                ) => {
+                  if (label === "json") return "_next/static/json.worker.js";
+                  if (label === "css") return "_next/static/css.worker.js";
+                  if (label === "html") return "_next/static/html.worker.js";
+                  if (label === "typescript" || label === "javascript")
+                    return "_next/static/ts.worker.js";
+                  return "_next/static/editor.worker.js";
+                };
+              }}
+            />
+          </div>
           <div
             id="compileOutput"
-            style={{ whiteSpace: "pre", flexBasis: "20%" }}
+            style={{
+              whiteSpace: "pre-wrap",
+              wordWrap: "break-word",
+              padding: "5px",
+            }}
           >
             {compileOutput}
           </div>
@@ -136,12 +172,15 @@ export default function Home() {
             onChange={updateMessage}
             onKeyDown={(evt) => {
               if (evt.keyCode === 13) {
-                sendMessage();
+                req({
+                  type: "message",
+                  message,
+                });
               }
             }}
           ></input>
         </Split>
-        <canvas id="canvas"></canvas>
+        <canvas ref={canvas}></canvas>
       </Split>
     </main>
   );

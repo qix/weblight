@@ -1,590 +1,649 @@
-export const SAMPLE = `
-unsigned int state_loop = 0;
-unsigned int state_incr = 1;
-unsigned int state = 0;
-int fade_speed = 16;
-void rope_fade(int amount)
-{
-  for (int k = 0; k < ROPE_TOTAL * 3; k++)
-  {
-    ledBuffer[k] = ledBuffer[k] > amount ? ledBuffer[k] - amount : 0;
-  }
-}
+export const SAMPLE =
+  `
+// Maximum supported number of points
+#define NUM_PARTICLES 8
+// Scale to calculate position using (allows particles to be midway between positions)
+#define POS_SCALE 10
+// Maximum position for any particle
+#define POS_MAX (ROPE_LEDS * POS_SCALE)
 
-enum MODE
+enum BlendMode
 {
-  MODE_SET = 0,
-  MODE_ADD = 1,
-  MODE_BLEND = 2,
+COLOR_SET = 0,
+COLOR_ADD = 1,
+COLOR_BLEND = 2,
 };
 
-uint8_t blend(float amount, int a, int b)
-{
-  float af = a / 255.0;
-  float bf = b / 255.0;
-  return (uint8_t)(255 * sqrt((1 - amount) * af * af + amount * bf * bf));
-}
-
-void rgb(int pixel, uint8_t r, uint8_t g, uint8_t b, int mode = MODE_SET)
-{
-  int position = (ROPE_START + pixel) * 3;
-  if (mode == MODE_SET)
-  {
-    ledBuffer[position + 1] = r;
-    ledBuffer[position + 0] = g;
-    ledBuffer[position + 2] = b;
-  }
-  else if (mode == MODE_ADD)
-  {
-    ledBuffer[position + 1] = min(255, ((int)r) + ledBuffer[position + 1]);
-    ledBuffer[position + 0] = min(255, ((int)g) + ledBuffer[position + 0]);
-    ledBuffer[position + 2] = min(255, ((int)b) + ledBuffer[position + 2]);
-  }
-  else if (mode == MODE_BLEND)
-  {
-    ledBuffer[position + 1] = blend(0.5, ledBuffer[position + 1], r);
-    ledBuffer[position + 0] = blend(0.5, ledBuffer[position + 0], g);
-    ledBuffer[position + 2] = blend(0.5, ledBuffer[position + 2], b);
-  }
-}
-
-void hsv(int pixel, int hue, uint8_t sat, uint8_t val, int mode = MODE_SET)
-{
-  val = gamma8[(uint8_t)val];
-  sat = 255 - gamma8[255 - (uint8_t)sat];
-
-  int base;
-
-  if (sat == 0)
-  { // Acromatic color (gray). Hue doesn't mind.
-    rgb(pixel, val, val, val, mode);
-  }
-  else
-  {
-    base = (int)(((255 - sat) * val) >> 8);
-
-    switch ((int)(hue / 60))
-    {
-    case 0:
-      return rgb(pixel, val, (((val - base) * hue) / 60) + base, base, mode);
-    case 1:
-      return rgb(pixel, (((val - base) * (60 - (hue % 60))) / 60) + base, val, base, mode);
-    case 2:
-      return rgb(pixel, base, val, (((val - base) * (hue % 60)) / 60) + base, mode);
-    case 3:
-      return rgb(pixel, base, (((val - base) * (60 - (hue % 60))) / 60) + base, val, mode);
-    case 4:
-      return rgb(pixel, (((val - base) * (hue % 60)) / 60) + base, base, val, mode);
-    case 5:
-      return rgb(pixel, val, base, (((val - base) * (60 - (hue % 60))) / 60) + base, mode);
-    }
-  }
-}
-
-void rope_rgb(uint8_t r, uint8_t g, uint8_t b)
-{
-  for (int k = 0; k < ROPE_LEDS; k++)
-  {
-    rgb(k, r, g, b);
-  }
-}
-
-void rope_hsv(int hue, uint8_t sat, uint8_t val)
-{
-  for (int k = 0; k < ROPE_LEDS; k++)
-  {
-    hsv(k, hue, sat, val);
-  }
-}
-
-void copy(uint8_t *source, int from_offset, int to_offset, int pixels)
-{
-  memcpy(ledBuffer + (ROPE_START + to_offset) * 3, source + (from_offset * 3), pixels * 3);
-}
-void erase(int offset, int pixels)
-{
-  memset(ledBuffer + (ROPE_START + offset) * 3, 0, pixels * 3);
-}
-
-void led_positions(void)
-{
-  for (int k = 0; k < ROPE_LEDS; k++)
-  {
-    if (k % 25 == 0)
-    {
-      rgb(k, 255, 255, 255);
-    }
-    else if (k % 10 == 0)
-    {
-      rgb(k, 255, 0, 0);
-    }
-    else if (k % 5 == 0)
-    {
-      rgb(k, 0, 255, 0);
-    }
-    else if (k % 2 == 0)
-    {
-      rgb(k, 0, 0, 255);
-    }
-  }
-}
-
-struct ChasePoint
-{
-  int pos;
-  int hue;
-  int len;
-  int speed;
-  int hue_v;
-  int bright;
-  bool wrap;
+enum CollisionMode {
+COLLIDE_OFF = 0,
+COLLIDE_BOOM = 1,
 };
 
-enum ChaseMode
+enum DisplayMode
 {
-  CHASE = 0,
-  FLOWER = 1,
-  RAINBOW = 2,
-  SPARKLE = 3,
-  PULSE = 4,
-  NOISE = 5,
-  NUM_CHASE_MODES = 6,
+CHASE = 0,
+FLOWER = 1,
+RAINBOW = 2,
+SPARKLE = 3,
+PULSE = 4,
+NOISE = 5,
+NUM_DISPLAY_MODES = 6,
 
-  FLASH = 64,
+FLASH = 64,
 
-  OFF = 255,
+OFF = 255,
 };
 
 enum ColorMode
 {
-  HSV = 1,
-  RGB = 2,
+HSV = 1,
+RGB = 2,
 };
 
-#define CHASE_POINTS 8
-#define POS_SCALE 10
-ChasePoint points[CHASE_POINTS];
-ChaseMode chase_mode;
+struct ChasePoint
+{
+int pos;
+int hue;
+int len;
+int speed;
+int hue_v;
+int bright;
+int respawn;
+bool wrap;
+};
+
+ChasePoint particles[NUM_PARTICLES];
+DisplayMode display_mode;
 int last_auto = 0;
 
 int r_mult = 255;
 int g_mult = 255;
 int b_mult = 255;
+
+// These are all configured during display_setup()
 ColorMode color_mode = HSV;
+CollisionMode collision_mode = COLLIDE_OFF;
+
+unsigned int state_loop = 0;
+unsigned int state;
+int fade_speed = 16;
+int rope_offset = 0;
+
+#define FLASH_STEP 10
+
+/**********************************************
+ * Color rendering logic
+ **********************************************/
+uint8_t blend(float amount, int a, int b)
+{
+float af = a / 255.0;
+float bf = b / 255.0;
+return (uint8_t)(255 * sqrt((1 - amount) * af * af + amount * bf * bf));
+}
+
+void rgb(int pixel, uint8_t r, uint8_t g, uint8_t b, int mode = COLOR_SET)
+{
+int position = (rope_offset + pixel) * 3;
+if (mode == COLOR_SET)
+{
+    ledBuffer[position + 1] = r;
+    ledBuffer[position + 0] = g;
+    ledBuffer[position + 2] = b;
+}
+else if (mode == COLOR_ADD)
+{
+    ledBuffer[position + 1] = min(255, ((int)r) + ledBuffer[position + 1]);
+    ledBuffer[position + 0] = min(255, ((int)g) + ledBuffer[position + 0]);
+    ledBuffer[position + 2] = min(255, ((int)b) + ledBuffer[position + 2]);
+}
+else if (mode == COLOR_BLEND)
+{
+    ledBuffer[position + 1] = blend(0.5, ledBuffer[position + 1], r);
+    ledBuffer[position + 0] = blend(0.5, ledBuffer[position + 0], g);
+    ledBuffer[position + 2] = blend(0.5, ledBuffer[position + 2], b);
+}
+}
+
+void hsv(int pixel, int hue, uint8_t sat, uint8_t val, int mode = COLOR_SET)
+{
+val = gamma8[(uint8_t)val];
+sat = 255 - gamma8[255 - (uint8_t)sat];
+
+int base;
+
+if (sat == 0)
+{
+    rgb(pixel, val, val, val, mode);
+}
+else
+{
+    base = (int)(((255 - sat) * val) >> 8);
+
+    switch ((int)(hue / 60))
+    {
+    case 0:
+    return rgb(pixel, val, (((val - base) * hue) / 60) + base, base, mode);
+    case 1:
+    return rgb(pixel, (((val - base) * (60 - (hue % 60))) / 60) + base, val, base, mode);
+    case 2:
+    return rgb(pixel, base, val, (((val - base) * (hue % 60)) / 60) + base, mode);
+    case 3:
+    return rgb(pixel, base, (((val - base) * (60 - (hue % 60))) / 60) + base, val, mode);
+    case 4:
+    return rgb(pixel, (((val - base) * (hue % 60)) / 60) + base, base, val, mode);
+    case 5:
+    return rgb(pixel, val, base, (((val - base) * (60 - (hue % 60))) / 60) + base, mode);
+    }
+}
+}
+
+void rope_fade(int amount)
+{
+for (int k = 0; k < ROPE_LEDS * 3; k++)
+{
+    ledBuffer[k] = ledBuffer[k] > amount ? ledBuffer[k] - amount : 0;
+}
+}
+
+void rope_rgb(uint8_t r, uint8_t g, uint8_t b)
+{
+for (int k = 0; k < ROPE_LEDS; k++)
+{
+    rgb(k, r, g, b);
+}
+}
+
+void rope_hsv(int hue, uint8_t sat, uint8_t val)
+{
+for (int k = 0; k < ROPE_LEDS; k++)
+{
+    hsv(k, hue, sat, val);
+}
+}
 
 void mult_rgb(int r, int g, int b)
 {
-  r_mult = r;
-  g_mult = g;
-  b_mult = b;
+r_mult = r;
+g_mult = g;
+b_mult = b;
 }
+
+/**********************************************
+ * Setup
+ **********************************************/
 
 void switch_light(bool on)
 {
-  if (on)
-  {
+if (on)
+{
     digitalWrite(RELAY_PIN, LOW);
-  }
-  else
-  {
+}
+else
+{
     digitalWrite(RELAY_PIN, HIGH);
-  }
+}
 }
 
-void chase_setup(ChaseMode mode);
+void display_setup(DisplayMode mode);
 void message(char *message)
 {
-  if (strcmp(message, "LIGHT") == 0)
-  {
+if (strcmp(message, "LIGHT") == 0)
+{
     switch_light(true);
-  }
-  else if (strcmp(message, "ON") == 0)
-  {
+}
+else if (strcmp(message, "ON") == 0)
+{
     switch_light(true);
-    chase_setup(CHASE);
+    display_setup(CHASE);
     last_auto = millis();
-  }
-  else if (strcmp(message, "CHASE") == 0)
-  {
-    chase_setup(CHASE);
-  }
-  else if (strcmp(message, "FLOWER") == 0)
-  {
-    chase_setup(FLOWER);
-  }
-  else if (strcmp(message, "GREEN") == 0)
-  {
+}
+else if (strcmp(message, "CHASE") == 0)
+{
+    display_setup(CHASE);
+}
+else if (strcmp(message, "FLOWER") == 0)
+{
+    display_setup(FLOWER);
+}
+else if (strcmp(message, "GREEN") == 0)
+{
     mult_rgb(0, 255, 0);
-  }
-  else if (strcmp(message, "PULSE") == 0)
-  {
-    chase_setup(PULSE);
-  }
-  else if (strcmp(message, "SPARKLE") == 0)
-  {
-    chase_setup(SPARKLE);
-  }
-  else if (strcmp(message, "NOISE") == 0)
-  {
-    chase_setup(NOISE);
-  }
-  else if (strcmp(message, "FLASH") == 0)
-  {
-    chase_setup(FLASH);
-  }
-  else if (strcmp(message, "RED") == 0)
-  {
+}
+else if (strcmp(message, "PULSE") == 0)
+{
+    display_setup(PULSE);
+}
+else if (strcmp(message, "SPARKLE") == 0)
+{
+    display_setup(SPARKLE);
+}
+else if (strcmp(message, "NOISE") == 0)
+{
+    display_setup(NOISE);
+}
+else if (strcmp(message, "FLASH") == 0)
+{
+    display_setup(FLASH);
+}
+else if (strcmp(message, "RED") == 0)
+{
     mult_rgb(255, 0, 0);
-  }
-  else if (strcmp(message, "GREEN") == 0)
-  {
+}
+else if (strcmp(message, "GREEN") == 0)
+{
     mult_rgb(0, 255, 0);
-  }
-  else if (strcmp(message, "BLUE") == 0)
-  {
+}
+else if (strcmp(message, "BLUE") == 0)
+{
     mult_rgb(0, 0, 255);
-  }
-  else if (strcmp(message, "YELLOW") == 0)
-  {
+}
+else if (strcmp(message, "YELLOW") == 0)
+{
     mult_rgb(255, 255, 0);
-  }
-  else if (strcmp(message, "TURQUOISE") == 0)
-  {
+}
+else if (strcmp(message, "TURQUOISE") == 0)
+{
     mult_rgb(0, 255, 255);
-  }
-  else if (strcmp(message, "PINK") == 0)
-  {
+}
+else if (strcmp(message, "PINK") == 0)
+{
     mult_rgb(255, 0, 255);
-  }
-  else if (strcmp(message, "RAINBOW") == 0)
-  {
-    chase_setup(RAINBOW);
-  }
-  else if (strcmp(message, "RANDOM") == 0)
-  {
-    int next = random(NUM_CHASE_MODES);
-    while (next == chase_mode)
+}
+else if (strcmp(message, "RAINBOW") == 0)
+{
+    display_setup(RAINBOW);
+}
+else if (strcmp(message, "RANDOM") == 0)
+{
+    int next = random(NUM_DISPLAY_MODES);
+    while (next == display_mode)
     {
-      next = random(NUM_CHASE_MODES);
+    next = random(NUM_DISPLAY_MODES);
     }
-    chase_setup(next);
-  }
-  else if (strcmp(message, "NEXT") == 0)
-  {
-    chase_setup((chase_mode + 1) % NUM_CHASE_MODES);
-  }
-  else if (strcmp(message, "OFF") == 0)
-  {
+    display_setup(next);
+}
+else if (strcmp(message, "NEXT") == 0)
+{
+    display_setup((display_mode + 1) % NUM_DISPLAY_MODES);
+}
+else if (strcmp(message, "OFF") == 0)
+{
     switch_light(false);
-    chase_setup(OFF);
-  }
-  else if (strcmp(message, "AUTO") == 0)
-  {
-    if (chase_mode >= NUM_CHASE_MODES)
+    display_setup(OFF);
+}
+else if (strcmp(message, "AUTO") == 0)
+{
+    if (display_mode >= NUM_DISPLAY_MODES)
     {
-      chase_setup(random(NUM_CHASE_MODES));
+    display_setup(random(NUM_DISPLAY_MODES));
     }
     last_auto = millis() + 1;
-  }
+}
 }
 
-void chase_setup(ChaseMode mode = OFF)
+void display_setup(DisplayMode mode)
 {
-  rope_clear();
-  chase_mode = mode;
+rope_clear();
+display_mode = mode;
 
-  color_mode = HSV;
-  last_auto = 0;
-  fade_speed = 16;
-  state = 0;
-  state_loop = 0;
-  state_incr = 1;
-  for (int k = 0; k < CHASE_POINTS; k++)
-  {
-    points[k].len = 0;
-  }
+color_mode = HSV;
+last_auto = 0;
+fade_speed = 16;
+state = 0;
+state_loop = 0;
+collision_mode = COLLIDE_OFF;
+for (int k = 0; k < NUM_PARTICLES; k++)
+{
+    particles[k].len = 0;
+    particles[k].respawn = 0;
+}
 
-  if (mode == OFF)
-  {
+if (mode == OFF)
+{
     fade_speed = 256;
-  }
-  else if (mode == CHASE)
-  {
-    for (int k = 0; k < CHASE_POINTS; k++)
+}
+else if (mode == CHASE)
+{
+    for (int k = 0; k < NUM_PARTICLES; k++)
     {
-      points[k].pos = random(POS_SCALE * ROPE_LEDS);
-      points[k].hue = random(360);
-      points[k].len = 8;
-      points[k].speed = k == 0 ? -1 : k;
-      points[k].hue_v = 1;
-      points[k].bright = 255;
-      points[k].wrap = true;
+    particles[k].pos = random(POS_SCALE * ROPE_LEDS);
+    particles[k].hue = random(360);
+    particles[k].len = 8;
+    particles[k].speed = k == 0 ? -1 : k;
+    particles[k].hue_v = 1;
+    particles[k].bright = 255;
+    particles[k].wrap = true;
     }
+    collision_mode = COLLIDE_BOOM;
     fade_speed = 64;
-  }
-  else if (mode == FLOWER)
-  {
+}
+else if (mode == FLOWER)
+{
     fade_speed = 2;
     for (int k = 0; k < 2; k++)
     {
-      points[k].pos = 0;
-      points[k].hue = 0;
-      points[k].len = 50;
-      points[k].speed = k == 0 ? -5 : +5;
-      points[k].hue_v = 0;
-      points[k].bright = 64;
-      points[k].wrap = false;
+    particles[k].pos = 0;
+    particles[k].hue = 0;
+    particles[k].len = 50;
+    particles[k].speed = k == 0 ? -5 : +5;
+    particles[k].hue_v = 0;
+    particles[k].bright = 64;
+    particles[k].wrap = false;
     }
     fade_speed = 8;
     color_mode = RGB;
     mult_rgb(255, 0, 0);
-  }
-  else if (mode == FLASH)
-  {
-    state_loop = 256;
-    state_incr = 5;
+}
+else if (mode == FLASH)
+{
+    state_loop = (uint8_t)(512 / FLASH_STEP);
 
     // can't handle all the lights being white, need more power
     mult_rgb(50, 50, 50);
-  }
-  else if (mode == PULSE)
-  {
+}
+else if (mode == PULSE)
+{
     state_loop = 512;
-  }
-  else if (mode == RAINBOW)
-  {
+}
+else if (mode == RAINBOW)
+{
     state_loop = 360;
-  }
-  else if (mode == NOISE)
-  {
+}
+else if (mode == NOISE)
+{
     // no setup
-  }
-  else if (mode == SPARKLE)
-  {
+}
+else if (mode == SPARKLE)
+{
     fade_speed = 1;
-  }
+}
 }
 
-void chase_reset(void)
+/**
+ * display_reset() is called after the state_loop is hit and state is reset to zero again
+ */
+void display_reset(void)
 {
-  if (chase_mode == FLASH)
-  {
-    chase_setup(OFF);
-  }
+if (display_mode == FLASH)
+{
+    display_setup(OFF);
 }
+}
+
+void start(void) {
+log("Display started!");
+display_setup(OFF);
+}
+
+/**********************************************
+ * Step functions
+ **********************************************/
 
 void point_render(int k)
 {
-  int hue = points[k].hue;
-  int highlight = (int)(points[k].pos / POS_SCALE);
-  int length = points[k].len;
+int hue = particles[k].hue;
+int highlight = (int)(particles[k].pos / POS_SCALE);
+int length = particles[k].len;
 
-  if (!points[k].wrap)
-  {
-    if (points[k].speed >= 0)
+if (!particles[k].wrap)
+{
+    if (particles[k].speed >= 0)
     {
-      length = min(length, highlight);
+    length = min(length, highlight);
     }
     else
     {
-      length = min(length, ROPE_LEDS - highlight);
+    length = min(length, ROPE_LEDS - highlight);
     }
-  }
+}
 
-  if (color_mode == HSV)
-  {
+if (color_mode == HSV)
+{
     for (int tail = 0; tail < length; tail++)
     {
-      hsv(
-          (highlight - (points[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
-          points[k].hue, 255, (points[k].bright * (length - tail)) / length,
-          MODE_ADD);
+    hsv(
+        (highlight - (particles[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
+        particles[k].hue, 255, (particles[k].bright * (length - tail)) / length,
+        COLOR_ADD);
     }
-  }
-  else if (color_mode == RGB)
-  {
+}
+else if (color_mode == RGB)
+{
     for (int tail = 0; tail < length; tail++)
     {
-      int bright = (points[k].bright * (length - tail)) / length;
-      rgb(
-          (highlight - (points[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
-          min(r_mult, bright), min(g_mult, bright), min(b_mult, bright),
-          MODE_ADD);
+    int bright = (particles[k].bright * (length - tail)) / length;
+    rgb(
+        (highlight - (particles[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
+        min(r_mult, bright), min(g_mult, bright), min(b_mult, bright),
+        COLOR_ADD);
     }
-  }
-  else
-  {
-    Serial.println("Unknown color_mode");
-  }
+}
+else
+{
+    log("Unknown color_mode");
+}
 }
 
 int distance(int k, int j)
 {
-  int d = abs(k - j);
-  return min(d, ROPE_LEDS - d);
+int d = abs(k - j);
+return min(d, ROPE_LEDS - d);
 }
 
-void chase(void)
+void render_display(void)
 {
-  if (last_auto > 0)
-  {
+if (last_auto > 0)
+{
     if (millis() - last_auto > 5000)
     {
-      chase_setup((chase_mode + 1) % NUM_CHASE_MODES);
-      last_auto = millis();
+    display_setup((display_mode + 1) % NUM_DISPLAY_MODES);
+    last_auto = millis();
     }
-  }
+}
 
-  if (chase_mode == PULSE)
-  {
+if (display_mode == PULSE)
+{
     int pulse = 0;
     if (state < 256)
     {
-      pulse = state % 256;
+    pulse = state % 256;
     }
     else
     {
-      pulse = 255 - (state - 256) % 256;
+    pulse = 255 - (state - 256) % 256;
     }
 
     rope_rgb(min(32 + pulse, 255), 0, 0);
-  }
-  else if (chase_mode == SPARKLE)
-  {
+}
+else if (display_mode == SPARKLE)
+{
     if (state % 5 == 0)
     {
-      hsv(random(ROPE_LEDS), random(360), 255, random(96, 256), MODE_ADD);
+    hsv(random(ROPE_LEDS), random(360), 255, random(96, 256), COLOR_ADD);
     }
     if (state % 2 == 0)
     {
-      rope_fade(1);
+    rope_fade(1);
     }
     delay(10);
-  }
-  else if (chase_mode == NOISE)
-  {
+}
+else if (display_mode == NOISE)
+{
     for (int i = 0; i < ROPE_LEDS; i++)
     {
-      uint8_t value = gamma8_floor[random(256)];
-      rgb(i, value, value, value);
+    uint8_t value = gamma8_floor[random(256)];
+    rgb(i, value, value, value);
     }
-  }
-  else if (chase_mode == FLASH)
-  {
+}
+else if (display_mode == FLASH)
+{
     int partial = 0;
-    int bright = min(255, 2 * (state > 128 ? 255 - state : state));
+    int flashState = state * FLASH_STEP;
+    int bright = min(255, (flashState > 255 ? 512 - flashState : flashState));
 
     for (int i = 0; i < ROPE_LEDS; i++)
     {
-      uint8_t value = gamma8_floor[bright];
+    uint8_t value = gamma8_floor[bright];
 
-      partial = gamma8_partial[bright];
-      if (partial >= 128 && i % 2 == 0)
-      {
+    partial = gamma8_partial[bright];
+    if (partial >= 128 && i % 2 == 0)
+    {
         value += 1;
-      }
-      else if (partial >= 64 && i % 4 == 0)
-      {
+    }
+    else if (partial >= 64 && i % 4 == 0)
+    {
         value += 1;
-      }
-      else if (partial >= 32 && i % 8 == 0)
-      {
+    }
+    else if (partial >= 32 && i % 8 == 0)
+    {
         value += 1;
-      }
-      else if (partial >= 16 && i % 16 == 0)
-      {
+    }
+    else if (partial >= 16 && i % 16 == 0)
+    {
         value += 1;
-      }
-      /*
-      partial += gamma8_partial[bright];
-      if (partial >= 256) {
-        partial -= 256;
-        value += 1;
-      }*/
+    }
 
-      rgb(i, min(r_mult, value), min(g_mult, value), min(b_mult, value));
+    rgb(i, min(r_mult, value), min(g_mult, value), min(b_mult, value));
     }
     return;
 
     if (state < 11)
     {
-      for (int center = 10; center < ROPE_LEDS - 10; center += 20)
-      {
+    for (int center = 10; center < ROPE_LEDS - 10; center += 20)
+    {
         for (int k = 0; k <= 10; k++)
         {
-          rgb(center + k, k < state ? 255 : 0, 0, 0);
-          rgb(center - k, k < state ? 255 : 0, 0, 0);
+        rgb(center + k, k < state ? 255 : 0, 0, 0);
+        rgb(center - k, k < state ? 255 : 0, 0, 0);
         }
-      }
+    }
     }
     else if (state > 12)
     {
-      int bright = 256 - (state - 12); // * 16;
-      if (bright == 0)
-      {
-        chase_setup(OFF);
+    int bright = 256 - (state - 12); // * 16;
+    if (bright == 0)
+    {
+        display_setup(OFF);
         return;
-      }
-      rope_rgb(gamma8[bright], 0, 0);
+    }
+    rope_rgb(gamma8[bright], 0, 0);
     }
     delay(50);
-  }
-  else if (chase_mode == RAINBOW)
-  {
-    points[0].pos = (points[0].pos + 1) % ROPE_LEDS;
-    int dark = points[0].pos;
+}
+else if (display_mode == RAINBOW)
+{
+    particles[0].pos = (particles[0].pos + 1) % ROPE_LEDS;
+    int dark = particles[0].pos;
 
     for (int k = 0; k < ROPE_LEDS; k++)
     {
-      int dist = distance(k, dark);
-      hsv(k, (state + k) % 360, 255, dist < 25 ? 255 - 10 * (25 - dist) : 255);
+    int dist = distance(k, dark);
+    hsv(k, (state + k) % 360, 255, dist < 25 ? 255 - 10 * (25 - dist) : 255);
     }
     delay(50);
-  }
-  else
-  {
+}
+else
+{
     rope_fade(fade_speed);
-  }
+}
 
-  for (int k = 0; k < 8; k++)
-  {
-    if (points[k].len == 0)
+for (int k = 0; k < NUM_PARTICLES; k++)
+{
+    if (particles[k].len == 0)
     {
-      continue;
+    continue;
     }
 
+    if (particles[k].respawn > 0) {
+    particles[k].respawn--;
+    continue;
+    }
     point_render(k);
 
-    // area slowdown
-    int pos = points[k].pos / POS_SCALE;
+    // Rotate particle color
+    particles[k].hue = (particles[k].hue + particles[k].hue_v + 360) % 360;
+
+    // Area slowdown: This was initially intended so that the lines would match up, but the numbers
+    // to achieve that are slightly off.
+    int pos = particles[k].pos / POS_SCALE;
     if (state % 3 == 0 && pos >= 200 && pos <= 250)
     {
-      // skip movement
+    continue;
     }
-    else
-    {
-      points[k].pos = (points[k].pos + points[k].speed + ROPE_LEDS * POS_SCALE) % (ROPE_LEDS * POS_SCALE);
+
+    int prevPos = particles[k].pos;
+    int nextPos = (particles[k].pos + particles[k].speed + POS_MAX) % POS_MAX;
+    particles[k].pos = nextPos;
+    
+    // This respawn logic is particularly weak, but it's a nice start
+    if (collision_mode != COLLIDE_BOOM) {
+    continue;
     }
-    points[k].hue = (points[k].hue + points[k].hue_v + 360) % 360;
-  }
+    for (int j = 0; j < NUM_PARTICLES; j++) {
+    bool collided = k != j && (
+        (prevPos < particles[j].pos && nextPos >= particles[j].pos) ||
+        (prevPos > particles[j].pos && nextPos <= particles[j].pos)
+    ) && abs((prevPos - nextPos) < POS_MAX / 2);
+    if (
+        collided &&
+        particles[k].speed * particles[j].speed < 0 &&
+        particles[j].respawn == 0
+    ) {
+        log("Boom!");
+        particles[k].respawn = random(250);
+        particles[j].respawn = random(250);
+        particles[k].pos = random(POS_MAX);
+        particles[j].pos = random(POS_MAX);
+    }
+    }   
+}
 }
 
 void step(void)
 {
-  chase();
-  state += state_incr;
-  if (state_loop && state >= state_loop)
-  {
+render_display();
+state = (uint16_t)(state + 1);
+if (state_loop && state >= state_loop)
+{
     state = 0;
-    chase_reset();
-  }
+    display_reset();
 }
+}
+
+/**********************************************
+ * Unused animations
+ **********************************************/
+void led_positions(void)
+{
+for (int k = 0; k < ROPE_LEDS; k++)
+{
+    if (k % 25 == 0)
+    {
+    rgb(k, 255, 255, 255);
+    }
+    else if (k % 10 == 0)
+    {
+    rgb(k, 255, 0, 0);
+    }
+    else if (k % 5 == 0)
+    {
+    rgb(k, 0, 255, 0);
+    }
+    else if (k % 2 == 0)
+    {
+    rgb(k, 0, 0, 255);
+    }
+}
+}
+
 void join(void)
 {
-  int half = ROPE_LEDS / 2;
-  for (int k = 0; k < half; k++)
-  {
+int half = ROPE_LEDS / 2;
+for (int k = 0; k < half; k++)
+{
     hsv(k, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
     hsv(ROPE_LEDS - k - 1, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
-  }
-}`;
+}
+}
+
+`.trim() + "\n";

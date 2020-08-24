@@ -48,15 +48,10 @@ export function compile(source: string) {
   const ast = parse(source);
   const transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
 
-  const ROPE_START = 25;
-  const ROPE_END = 300 - 1;
-  const ROPE_LEDS = ROPE_END - ROPE_START + 1;
+  const ROPE_LEDS = 300;
   const ledBuffer = new Uint8Array(ROPE_LEDS * 3);
   const inputs = {
-    ROPE_START,
-    ROPE_END,
     ROPE_LEDS,
-    ROPE_TOTAL: 300,
     ledBuffer,
     strcmp(left: string, right: string) {
       return left.localeCompare(right);
@@ -84,12 +79,10 @@ export function compile(source: string) {
       console.log(...args);
     },
     uint8(value: number) {
-      value = Math.floor(value) % 256;
-      if (value < 0) {
-        return value + 256;
-      } else {
-        return value;
-      }
+      return value & 255;
+    },
+    uint16(value: number) {
+      return value & 65535;
     },
     abs(value: number) {
       return Math.abs(value);
@@ -98,6 +91,7 @@ export function compile(source: string) {
     millis() {
       return Date.now();
     },
+    digitalWrite() {},
   };
 
   const stepArgs = Object.keys(inputs).sort().join(",");
@@ -105,6 +99,7 @@ export function compile(source: string) {
     (function() {
         return function(${stepArgs}) {`;
   const footer = `
+            start();
             return { step, message };
         }
     })()`;
@@ -120,5 +115,9 @@ export function compile(source: string) {
       .map((k) => inputs[k])
   );
 
-  return new Controller(source, ROPE_LEDS, ledBuffer, step, message);
+  return new Controller(source, ROPE_LEDS, ledBuffer, step, (msg: string) => {
+    for (const word of msg.split(" ")) {
+      message(word.toUpperCase());
+    }
+  });
 }

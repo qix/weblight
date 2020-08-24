@@ -40,6 +40,8 @@ export class Cast {
       return `Math.floor(${this.expr.transpile(ctx)})`;
     } else if (this.type === "uint8_t") {
       return `uint8(${this.expr.transpile(ctx)})`;
+    } else if (this.type === "uint16_t") {
+      return `uint16(${this.expr.transpile(ctx)})`;
     } else {
       throw new Error("Unknown cast: " + this.type);
     }

@@ -10,12 +10,17 @@
     "test": "ts-node src/parse.ts"
   },
   "dependencies": {
+    "@zeit/next-css": "^1.0.1",
+    "monaco-editor-webpack-plugin": "^1.9.0",
     "next": "9.5.2",
+    "next-fonts": "^1.4.0",
     "pegjs": "^0.10.0",
     "prettier": "^2.0.5",
     "react": "16.13.1",
     "react-dom": "16.13.1",
-    "react-split": "^2.0.9"
+    "react-monaco-editor": "^0.39.1",
+    "react-split": "^2.0.9",
+    "worker-plugin": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^14.6.0",
