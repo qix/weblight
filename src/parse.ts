@@ -5,7 +5,7 @@ import prettierBabel from "prettier/parser-babel";
 import { Context } from "./context";
 import { gamma8, gamma8_floor, gamma8_partial } from "./gamma";
 
-function sourceArrow(source: string, location: Location): string {
+export function sourceArrow(source: string, location: Location): string {
   const { start, end } = location;
   const sourceLines = source.split("\n");
 
@@ -26,7 +26,8 @@ function parse(source: string) {
     return pegParse(source);
   } catch (err) {
     if (err.location) {
-      console.log(sourceArrow(source, err.location));
+      // Could improve error reporting here
+      // console.log(sourceArrow(source, err.location));
     }
     throw err;
   }
@@ -111,7 +112,6 @@ export function compile(source: string) {
     parser: "babel",
     plugins: [prettierBabel],
   });
-  console.log(code);
 
   const build = eval(code);
   const { step, message } = build(

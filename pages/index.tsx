@@ -1,40 +1,60 @@
 import Head from "next/head";
 import styles from "../styles/Home.module.css";
 import { useEffect, useState } from "react";
-import { Controller, compile } from "../src/parse";
+import { Controller, compile, sourceArrow } from "../src/parse";
 import { generateCoords } from "../src/points";
 import { SAMPLE } from "../src/sample";
 import Split from "react-split";
 
 let controller: Controller;
+let compiledSource: string = "";
 
 export default function Home() {
   const [source, setSource] = useState(SAMPLE);
   const [message, setMessage] = useState("CHASE");
+  const [compileOutput, setCompileOutput] = useState("Compiling...");
 
-  if (!controller || controller.source !== source) {
+  function recompile() {
+    setCompileOutput("Compiling...");
+    compiledSource = source;
     try {
       controller = compile(source);
       controller.message(message);
+      setCompileOutput("Compilation successful!");
     } catch (err) {
-      console.error(err.stack);
+      let message = err.stack;
+      if (err.location) {
+        message =
+          "Error on line " +
+          err.location.start.line +
+          "\n" +
+          sourceArrow(source, err.location) +
+          "\n\n" +
+          message;
+      }
+      setCompileOutput(message);
     }
+  }
+
+  if (!controller || compiledSource !== source) {
+    recompile();
   }
 
   function updateSource(evt) {
     setSource(evt.target.value);
   }
 
-  function updateMessage(evt) {
-    setMessage(evt.target.value);
+  function sendMessage() {
     message.split(" ").map((word) => {
       controller.message(word.toUpperCase());
     });
   }
+  function updateMessage(evt) {
+    setMessage(evt.target.value);
+  }
 
   useEffect(() => {
-    controller = compile(source);
-    controller.message(message);
+    recompile();
 
     const canvas: HTMLCanvasElement = document.getElementById(
       "canvas"
@@ -85,16 +105,43 @@ export default function Home() {
         })}
         style={{ width: "100%", height: "100%" }}
       >
-        <textarea id="source" value={source} onChange={updateSource}></textarea>
-        <div style={{ flexDirection: "column", height: "100%" }}>
-          <canvas id="canvas" style={{ flexGrow: 1 }}></canvas>
+        <Split
+          direction="vertical"
+          elementStyle={(dimension, size, gutterSize) => ({
+            "flex-basis": `calc(${size}% - ${gutterSize}px)`,
+          })}
+          gutterStyle={(dimension, gutterSize) => ({
+            "flex-basis": `${gutterSize}px`,
+          })}
+          style={{ flexDirection: "column", height: "100%" }}
+          sizes={[70, 30, 0]}
+          minSize={[150, 60, 20]}
+        >
+          <textarea
+            id="source"
+            value={source}
+            onChange={updateSource}
+            style={{ flexGrow: 1 }}
+          ></textarea>
+          <div
+            id="compileOutput"
+            style={{ whiteSpace: "pre", flexBasis: "20%" }}
+          >
+            {compileOutput}
+          </div>
           <input
             type="text"
             id="message"
             value={message}
             onChange={updateMessage}
+            onKeyDown={(evt) => {
+              if (evt.keyCode === 13) {
+                sendMessage();
+              }
+            }}
           ></input>
-        </div>
+        </Split>
+        <canvas id="canvas"></canvas>
       </Split>
     </main>
   );
