@@ -312,12 +312,14 @@ export function generateCoords(width: number, height: number) {
     (width - 2 * padding) / (MAX_X - MIN_X),
     (height - 2 * padding) / (MAX_Y - MIN_Y)
   );
+  const xPad = (width - scale * (MAX_X - MIN_X)) / 2;
+  const yPad = (height - scale * (MAX_Y - MIN_Y)) / 2;
   return {
     xCoord: POINTS_SVG.map((pnt) => {
-      return Math.floor(padding + (pnt.x - MIN_X) * scale);
+      return Math.floor(xPad + (pnt.x - MIN_X) * scale);
     }),
     yCoord: POINTS_SVG.map((pnt) => {
-      return Math.floor(padding + (pnt.y - MIN_Y) * scale);
+      return Math.floor(yPad + (pnt.y - MIN_Y) * scale);
     }),
   };
 }

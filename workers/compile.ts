@@ -21,11 +21,22 @@ export interface CompileError {
   message: string;
   source: string;
 }
+export interface StepError {
+  type: "runtimeError";
+  message: string;
+  source: string;
+}
+export interface Log {
+  type: "log";
+  format: string;
+  args: any[];
+  source: string;
+}
 export interface Render {
   type: "render";
   buffer: Uint8Array;
 }
-export type Response = CompileOkay | CompileError | Render;
+export type Response = CompileOkay | CompileError | StepError | Render | Log;
 
 let compileTimeout: any = null;
 let lastMessage: string = "";
@@ -35,6 +46,19 @@ function respond(response: Response) {
 }
 
 let controller: Controller | null = null;
+
+function tryRuntime(cb: () => void) {
+  try {
+    cb();
+  } catch (err) {
+    respond({
+      type: "runtimeError",
+      message: err.stack,
+      source: controller.source,
+    });
+    controller = null;
+  }
+}
 
 addEventListener("message", (event) => {
   const message = event.data as Request;
@@ -46,19 +70,41 @@ addEventListener("message", (event) => {
     }
     compileTimeout = setTimeout(() => {
       try {
-        controller = compile(source);
-        controller.message(lastMessage);
+        controller = compile(source, {
+          log: (format: string, ...args: any[]) => {
+            respond({
+              type: "log",
+              source,
+              format,
+              args,
+            });
+          },
+        });
         respond({
           type: "compileOkay",
           source,
         });
       } catch (err) {
+        let message = err.stack;
+        if (err.location) {
+          message =
+            "Line " +
+            err.location.start.line +
+            ":\n" +
+            sourceArrow(source, err.location) +
+            "\n" +
+            message;
+        }
         respond({
           type: "compileError",
-          message: err.stack,
+          message,
           source,
         });
       }
+      tryRuntime(() => {
+        controller.start();
+        controller.message(lastMessage);
+      });
     }, COMPILE_DEBOUNCE_MS);
   } else if (message.type === "message") {
     if (controller) {
@@ -70,10 +116,13 @@ addEventListener("message", (event) => {
 
 setInterval(() => {
   if (controller) {
-    controller.step();
-    respond({
-      type: "render",
-      buffer: controller.ledBuffer,
+    tryRuntime(() => {
+      controller.step();
+
+      respond({
+        type: "render",
+        buffer: controller.ledBuffer,
+      });
     });
   }
 }, 25);

@@ -11,17 +11,20 @@ import Split from "react-split";
 import { invariant } from "../src/invariant";
 const MonacoEditor = dynamic(import("react-monaco-editor"), { ssr: false });
 
+let LOG_ID = 0;
+
 export default function Home() {
   const worker = useRef<Worker>();
   const canvas = useRef<HTMLCanvasElement>(null);
   const lastSource = useRef<string>(null);
+  const logs = useRef<JSX.Element[]>([]);
 
+  const [, setLogId] = useState(LOG_ID);
   const [source, setSource] = useState(SAMPLE);
   const [message, setMessage] = useState("");
-  const [compileOutput, setCompileOutput] = useState("Compiling...");
 
   function recompile() {
-    setCompileOutput("Compiling...");
+    clearLog("Compiling...");
     lastSource.current = source;
     req({ type: "compile", source });
   }
@@ -32,6 +35,10 @@ export default function Home() {
 
   function updateMessage(evt) {
     setMessage(evt.target.value);
+    req({
+      type: "message",
+      message: evt.target.value,
+    });
   }
 
   function req(request: Request) {
@@ -67,6 +74,25 @@ export default function Home() {
     }
   }
 
+  function clearLog(message: string) {
+    logs.current = [<div key={LOG_ID++}>{message}</div>];
+    setLogId(LOG_ID);
+  }
+  function log(format: string, ...args: any[]) {
+    // @todo: We might want to pull in a module to do proper formatting later
+    let message = format;
+    for (const arg of args) {
+      message += " " + JSON.stringify(arg);
+    }
+
+    // @todo: This is an extremely hacky way to do logs
+    if (logs.current.length > 15) {
+      logs.current.shift();
+    }
+    logs.current.push(<div key={LOG_ID++}>{message}</div>);
+    setLogId(LOG_ID);
+  }
+
   useEffect(() => {
     invariant(!worker.current, "Worker created twice");
     worker.current = new Worker("../workers/compile", { type: "module" });
@@ -76,11 +102,22 @@ export default function Home() {
         render(res.buffer);
       } else if (res.type === "compileOkay") {
         if (res.source === lastSource.current) {
-          setCompileOutput("Compile successful!");
+          clearLog("Compiled! Running...");
         }
       } else if (res.type === "compileError") {
         if (res.source === lastSource.current) {
-          setCompileOutput(res.message);
+          clearLog(res.message);
+        }
+      } else if (res.type === "runtimeError") {
+        if (res.source === lastSource.current) {
+          clearLog("Error during execution\n\n" + res.message);
+        }
+      } else if (res.type === "log") {
+        // Always do a `console.log()` even if we're compiling new source
+        console.log(res.format, ...res.args);
+
+        if (res.source === lastSource.current) {
+          log(res.format, ...res.args);
         }
       } else {
         console.log("Unknown webworker message:", res);
@@ -126,6 +163,28 @@ export default function Home() {
         })}
         style={{ width: "100%", height: "100%", display: "flex" }}
       >
+        <div>
+          <MonacoEditor
+            value={source}
+            onChange={setSource}
+            language="cpp"
+            theme="vs-dark"
+            editorDidMount={() => {
+              (window as any).MonacoEnvironment.getWorkerUrl = (
+                moduleId,
+                label
+              ) => {
+                if (label === "json") return "_next/static/json.worker.js";
+                if (label === "css") return "_next/static/css.worker.js";
+                if (label === "html") return "_next/static/html.worker.js";
+                if (label === "typescript" || label === "javascript")
+                  return "_next/static/ts.worker.js";
+                return "_next/static/editor.worker.js";
+              };
+            }}
+          />
+        </div>
+
         <Split
           direction="vertical"
           elementStyle={(dimension, size, gutterSize) => ({
@@ -135,41 +194,17 @@ export default function Home() {
             "flex-basis": `${gutterSize}px`,
             cursor: "ns-resize",
           })}
-          style={{ flexDirection: "column", height: "100%", display: "flex" }}
-          sizes={[70, 30, 0]}
-          minSize={[150, 60, 20]}
+          style={{
+            flexDirection: "column",
+            height: "100%",
+            display: "flex",
+
+            backgroundColor: "#000",
+          }}
+          sizes={[70, 0, 30]}
+          minSize={[150, 20, 60]}
         >
-          <div>
-            <MonacoEditor
-              value={source}
-              onChange={setSource}
-              language="cpp"
-              theme="vs-dark"
-              editorDidMount={() => {
-                (window as any).MonacoEnvironment.getWorkerUrl = (
-                  moduleId,
-                  label
-                ) => {
-                  if (label === "json") return "_next/static/json.worker.js";
-                  if (label === "css") return "_next/static/css.worker.js";
-                  if (label === "html") return "_next/static/html.worker.js";
-                  if (label === "typescript" || label === "javascript")
-                    return "_next/static/ts.worker.js";
-                  return "_next/static/editor.worker.js";
-                };
-              }}
-            />
-          </div>
-          <div
-            id="compileOutput"
-            style={{
-              whiteSpace: "pre-wrap",
-              wordWrap: "break-word",
-              padding: "5px",
-            }}
-          >
-            {compileOutput}
-          </div>
+          <canvas ref={canvas}></canvas>
           <input
             type="text"
             id="message"
@@ -183,9 +218,34 @@ export default function Home() {
                 });
               }
             }}
+            style={{
+              marginLeft: "auto",
+              marginRight: "auto",
+              maxWidth: "200px",
+            }}
           ></input>
+          <div
+            style={{
+              paddingTop: "5px",
+              height: "100%",
+              overflow: "auto",
+              backgroundColor: "#111",
+            }}
+          >
+            <div
+              id="compileOutput"
+              style={{
+                whiteSpace: "pre-wrap",
+                wordWrap: "break-word",
+                padding: "5px",
+                color: "#fff",
+                height: "100%",
+              }}
+            >
+              {logs.current}
+            </div>
+          </div>
         </Split>
-        <canvas ref={canvas}></canvas>
       </Split>
     </main>
   );

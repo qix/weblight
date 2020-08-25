@@ -38,12 +38,18 @@ export class Controller {
     readonly source: string,
     readonly size: number,
     readonly ledBuffer: Uint8Array,
+    readonly start: () => void,
     readonly step: () => void,
     readonly message: (input: string) => void
   ) {}
 }
 
-export function compile(source: string) {
+export function compile(
+  source: string,
+  options: {
+    log: (format: string, ...args: any) => void;
+  }
+) {
   const ctx = new Context();
   const ast = parse(source);
   const transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
@@ -76,9 +82,7 @@ export function compile(source: string) {
     max(a: number, b: number) {
       return Math.max(a, b);
     },
-    log(...args: any[]) {
-      console.log(...args);
-    },
+    log: options.log,
     uint8(value: number) {
       return value & 255;
     },
@@ -100,8 +104,7 @@ export function compile(source: string) {
     (function() {
         return function(${stepArgs}) {`;
   const footer = `
-            start();
-            return { step, message };
+            return { start, step, message };
         }
     })()`;
   const code = prettier.format(header + transpiled + footer, {
@@ -110,15 +113,22 @@ export function compile(source: string) {
   });
 
   const build = eval(code);
-  const { step, message } = build(
+  const { start, step, message } = build(
     ...Object.keys(inputs)
       .sort()
       .map((k) => inputs[k])
   );
 
-  return new Controller(source, ROPE_LEDS, ledBuffer, step, (msg: string) => {
-    for (const word of msg.split(" ")) {
-      message(word.toUpperCase());
+  return new Controller(
+    source,
+    ROPE_LEDS,
+    ledBuffer,
+    start,
+    step,
+    (msg: string) => {
+      for (const word of msg.split(" ")) {
+        message(word.toUpperCase());
+      }
     }
-  });
+  );
 }

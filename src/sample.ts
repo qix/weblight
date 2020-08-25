@@ -29,6 +29,28 @@ function stripMargin(text: string) {
 
 export const SAMPLE = stripMargin(
   `
+  /**
+   * 'weblight': Online program editor for some LED wall art I've been working on.
+   *
+   * = Lights =
+   * Lights are a WS2812B LED strip. The code that controls the lights is listed (and editable!) below.
+   * For a more simple example, swap out the call to 'render_display()' with render_join_halves()' at the
+   * bottom.
+   *
+   * = Messages =
+   * The controller supports basic messages sent over WiFi. Try typing 'RAINBOW' in the text box on the
+   * right. The message() function will be called with the individual words.
+   *
+   * = Editor =
+   * The editor is using a simple transpiler to convert the C code below into JavaScript compatible
+   * code. The compiler and main loop runs in a web worker, sending over the LED data.
+   * https://github.com/qix/weblight
+   *
+   * = Saving =
+   * Not implemented yet. I could probably get this working inside JSFiddle but I'm not sure I could
+   * get the experience to be as good.
+   */
+  
   // Maximum supported number of points
   #define NUM_PARTICLES 8
   // Scale to calculate position using (allows particles to be midway between positions)
@@ -120,19 +142,38 @@ export const SAMPLE = stripMargin(
       ledBuffer[position + 1] = r;
       ledBuffer[position + 0] = g;
       ledBuffer[position + 2] = b;
+      return;
     }
-    else if (mode == COLOR_ADD)
+  
+    uint8_t oR = ledBuffer[position + 1];
+    uint8_t oG = ledBuffer[position + 0];
+    uint8_t oB = ledBuffer[position + 2];
+  
+    if (mode == COLOR_ADD)
     {
-      ledBuffer[position + 1] = min(255, ((int)r) + ledBuffer[position + 1]);
-      ledBuffer[position + 0] = min(255, ((int)g) + ledBuffer[position + 0]);
-      ledBuffer[position + 2] = min(255, ((int)b) + ledBuffer[position + 2]);
+      int maxPrev = max(oR, max(oG, oB));
+      uint8_t maxNow = max(r, max(g, b));
+  
+      if (maxNow + maxPrev > 255) {
+        float scale = ((255.0 - maxNow) / 255);
+        oR = (uint8_t)(oR * scale);
+        oG = (uint8_t)(oG * scale);
+        oB = (uint8_t)(oB * scale);
+      }
+      r = (uint8_t)(r + oR);
+      g = (uint8_t)(g + oG);
+      b = (uint8_t)(b + oB);
     }
     else if (mode == COLOR_BLEND)
     {
-      ledBuffer[position + 1] = blend(0.5, ledBuffer[position + 1], r);
-      ledBuffer[position + 0] = blend(0.5, ledBuffer[position + 0], g);
-      ledBuffer[position + 2] = blend(0.5, ledBuffer[position + 2], b);
+      r = blend(0.5, oR, r);
+      g = blend(0.5, oG, g);
+      b = blend(0.5, oB, b);
     }
+  
+    ledBuffer[position + 1] = r;
+    ledBuffer[position + 0] = g;
+    ledBuffer[position + 2] = b;
   }
   
   void hsv(int pixel, int hue, uint8_t sat, uint8_t val, int mode = COLOR_SET)
@@ -703,7 +744,7 @@ export const SAMPLE = stripMargin(
     }
   }
   
-  void join(void)
+  void render_join_halves(void)
   {
     int half = ROPE_LEDS / 2;
     for (int k = 0; k < half; k++)
@@ -711,6 +752,7 @@ export const SAMPLE = stripMargin(
       hsv(k, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
       hsv(ROPE_LEDS - k - 1, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
     }
-  }
+  }  
+  
 `
 );
