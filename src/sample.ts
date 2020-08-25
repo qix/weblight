@@ -52,7 +52,7 @@ export const SAMPLE = stripMargin(
    */
   
   // Maximum supported number of points
-  #define NUM_PARTICLES 8
+  #define MAX_PARTICLES 8
   // Scale to calculate position using (allows particles to be midway between positions)
   #define POS_SCALE 10
   // Maximum position for any particle
@@ -79,7 +79,8 @@ export const SAMPLE = stripMargin(
     SPARKLE = 3,
     PULSE = 4,
     NOISE = 5,
-    NUM_DISPLAY_MODES = 6,
+    RANDCHASE = 6,
+    NUM_DISPLAY_MODES = 7,
   
     FLASH = 64,
   
@@ -105,7 +106,7 @@ export const SAMPLE = stripMargin(
     bool wrap;
   };
   
-  ChasePoint particles[NUM_PARTICLES];
+  ChasePoint particles[MAX_PARTICLES];
   DisplayMode display_mode;
   int last_auto = 0;
   
@@ -116,6 +117,7 @@ export const SAMPLE = stripMargin(
   // These are all configured during display_setup()
   ColorMode color_mode = HSV;
   CollisionMode collision_mode = COLLIDE_OFF;
+  bool collide_same_direction = false;
   
   unsigned int state_loop = 0;
   unsigned int state;
@@ -154,7 +156,8 @@ export const SAMPLE = stripMargin(
       int maxPrev = max(oR, max(oG, oB));
       uint8_t maxNow = max(r, max(g, b));
   
-      if (maxNow + maxPrev > 255) {
+      if (maxNow + maxPrev > 255)
+      {
         float scale = ((255.0 - maxNow) / 255);
         oR = (uint8_t)(oR * scale);
         oG = (uint8_t)(oG * scale);
@@ -273,6 +276,10 @@ export const SAMPLE = stripMargin(
     {
       display_setup(CHASE);
     }
+    else if (strcmp(message, "RANDCHASE") == 0)
+    {
+      display_setup(RANDCHASE);
+    }
     else if (strcmp(message, "FLOWER") == 0)
     {
       display_setup(FLOWER);
@@ -364,7 +371,8 @@ export const SAMPLE = stripMargin(
     state = 0;
     state_loop = 0;
     collision_mode = COLLIDE_OFF;
-    for (int k = 0; k < NUM_PARTICLES; k++)
+    collide_same_direction = false;
+    for (int k = 0; k < MAX_PARTICLES; k++)
     {
       particles[k].age = 0;
       particles[k].len = 0;
@@ -377,7 +385,7 @@ export const SAMPLE = stripMargin(
     }
     else if (mode == CHASE)
     {
-      for (int k = 0; k < NUM_PARTICLES; k++)
+      for (int k = 0; k < MAX_PARTICLES; k++)
       {
         particles[k].pos = random(POS_SCALE * ROPE_LEDS);
         particles[k].hue = random(360);
@@ -388,6 +396,29 @@ export const SAMPLE = stripMargin(
         particles[k].wrap = true;
       }
       collision_mode = COLLIDE_BOOM;
+      fade_speed = 64;
+    }
+    else if (mode == RANDCHASE)
+    {
+      // Take a random count, but make large numbers much less likely
+      int count = min(
+          random(4, MAX_PARTICLES),
+          random(4, MAX_PARTICLES),
+          random(2, MAX_PARTICLES + 1));
+  
+      int reverse = random(count);
+      for (int k = 0; k < count; k++)
+      {
+        particles[k].pos = random(POS_SCALE * ROPE_LEDS);
+        particles[k].hue = random(360);
+        particles[k].len = random(4, 8);
+        particles[k].speed = k <= reverse ? -random(1, count) : random(1, count);
+        particles[k].hue_v = random(1);
+        particles[k].bright = random(192, 256);
+        particles[k].wrap = true;
+      }
+      collision_mode = COLLIDE_BOOM;
+      collide_same_direction = random(1) ? true : false;
       fade_speed = 64;
     }
     else if (mode == FLOWER)
@@ -639,7 +670,7 @@ export const SAMPLE = stripMargin(
       rope_fade(fade_speed);
     }
   
-    for (int k = 0; k < NUM_PARTICLES; k++)
+    for (int k = 0; k < MAX_PARTICLES; k++)
     {
       if (particles[k].len == 0)
       {
@@ -686,14 +717,15 @@ export const SAMPLE = stripMargin(
       {
         continue;
       }
-      for (int j = 0; j < NUM_PARTICLES; j++)
+      for (int j = 0; j < MAX_PARTICLES; j++)
       {
-        bool collided = k != j && ((prevPos < particles[j].pos && nextPos >= particles[j].pos) || (prevPos > particles[j].pos && nextPos <= particles[j].pos)) && abs((prevPos - nextPos) < POS_MAX / 2);
-        if (
-            collided &&
-            particles[k].age > 256 && particles[j].age > 256 &&
-            particles[k].speed * particles[j].speed < 0 &&
-            particles[j].respawn == 0)
+        if (k == j || particles[j].len == 0 || particles[j].age < 256 || particles[j].respawn != 0)
+        {
+          continue;
+        }
+        bool collided = (((prevPos < particles[j].pos && nextPos >= particles[j].pos) || (prevPos > particles[j].pos && nextPos <= particles[j].pos)) && abs((prevPos - nextPos) < POS_MAX / 2) &&
+                         (collide_same_direction || particles[k].speed * particles[j].speed < 0));
+        if (collided)
         {
           log("Boom!");
           // Set the particles to respawn, but give enough time to fade out
@@ -752,7 +784,7 @@ export const SAMPLE = stripMargin(
       hsv(k, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
       hsv(ROPE_LEDS - k - 1, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
     }
-  }  
+  }
   
 `
 );
