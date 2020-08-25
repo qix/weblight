@@ -3,7 +3,6 @@ import { parse as pegParse, SyntaxError } from "./lang";
 import prettier from "prettier/standalone";
 import prettierBabel from "prettier/parser-babel";
 import { Context } from "./context";
-import { gamma8, gamma8_floor, gamma8_partial } from "./gamma";
 
 export function sourceArrow(source: string, location: Location): string {
   const { start, end } = location;
@@ -50,6 +49,12 @@ export function compile(
     log: (format: string, ...args: any) => void;
   }
 ) {
+  // These values are used to produce better colors in lights, since the birghtness is not
+  // uniform across the range. On a computer screen though treat it as uniform.
+  const gamma8 = Array.from(Array(256)).map((v, idx) => idx);
+  const gamma8_floor = Array.from(Array(256)).map((v, idx) => idx);
+  const gamma8_partial = Array.from(Array(256)).fill(0);
+
   const ctx = new Context();
   const ast = parse(source);
   const transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");

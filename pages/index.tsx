@@ -63,11 +63,11 @@ export default function Home() {
     for (let pixel = 0; pixel < pixelCount; pixel++) {
       const color =
         "rgb(" +
-        [
-          Math.max(32, buffer[pixel * 3 + 1]),
-          Math.max(32, buffer[pixel * 3 + 0]),
-          Math.max(32, buffer[pixel * 3 + 2]),
-        ].join(",") +
+        [buffer[pixel * 3 + 1], buffer[pixel * 3 + 0], buffer[pixel * 3 + 2]]
+          .map((v) => {
+            return 32 + (255 - 32) * (v / 255);
+          })
+          .join(",") +
         ")";
       ctx.fillStyle = color;
       ctx.fillRect(xCoord[pixel] - 2, yCoord[pixel] - 2, 4, 4);

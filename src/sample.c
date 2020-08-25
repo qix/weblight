@@ -30,7 +30,7 @@
  */
 
 // Maximum supported number of points
-#define MAX_PARTICLES 8
+#define MAX_PARTICLES 32
 // Scale to calculate position using (allows particles to be midway between positions)
 #define POS_SCALE 10
 // Maximum position for any particle
@@ -363,7 +363,7 @@ void display_setup(DisplayMode mode)
     }
     else if (mode == CHASE)
     {
-        for (int k = 0; k < MAX_PARTICLES; k++)
+        for (int k = 0; k < 8; k++)
         {
             particles[k].pos = random(POS_SCALE * ROPE_LEDS);
             particles[k].hue = random(360);
@@ -380,8 +380,8 @@ void display_setup(DisplayMode mode)
     {
         // Take a random count, but make large numbers much less likely
         int count = min(
-            random(4, MAX_PARTICLES),
-            random(4, MAX_PARTICLES),
+            random(4, MAX_PARTICLES + 1),
+            random(4, MAX_PARTICLES + 1),
             random(2, MAX_PARTICLES + 1));
 
         int reverse = random(count);
