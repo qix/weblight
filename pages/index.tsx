@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import styles from "../styles/Home.module.css";
 import { useEffect, useState, useRef } from "react";
 import { generateCoords } from "../src/points";
-import { SAMPLE } from "../src/sample";
+import SAMPLE from "../src/sample.c";
 import { Request, Response } from "../workers/compile";
 
 import Split from "react-split";

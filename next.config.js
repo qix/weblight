@@ -13,6 +13,11 @@ module.exports = withCSS(
         };
       }
 
+      config.module.rules.push({
+        test: /\.c$/,
+        use: "raw-loader",
+      });
+
       config.plugins.push(
         new WorkerPlugin(),
         new MonacoWebpackPlugin({
