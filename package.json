@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "codegen": "ts-node scripts/gen-parser.ts",
+    "compile": "ts-node -O '{\"module\":\"commonjs\"}' scripts/compile.ts",
+    "codegen": "ts-node -O '{\"module\":\"commonjs\"}' scripts/gen-parser.ts && prettier --write src/lang.ts",
     "test": "ts-node src/parse.ts"
   },
   "dependencies": {

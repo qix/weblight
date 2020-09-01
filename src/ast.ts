@@ -1,6 +1,8 @@
 import { Context } from "./context";
 import { invariant } from "./invariant";
 
+const MODE_REGEX = /^[A-Z](_?[A-Z])*$/;
+
 const STRUCT_JS_TYPES = {
   uint8_t: "Uint8Array",
 };
@@ -255,6 +257,50 @@ export class Struct {
         return [v.id, DEFAULTS[v.type]];
       })
     );
+  }
+}
+
+export class Message {
+  constructor(
+    readonly name: string,
+    readonly block: Block,
+    readonly location: Location
+  ) {
+    invariant(
+      name === "*" || MODE_REGEX.test(name),
+      "Messages must be underscore seperated uppercase strings, or '*'"
+    );
+  }
+
+  transpile(ctx: Context) {
+    invariant(
+      !ctx.messages.hasOwnProperty(this.name),
+      "Duplicate definition of message: " + this.name
+    );
+    ctx.messages[this.name] = this.block;
+    return "";
+  }
+}
+
+export class Mode {
+  constructor(
+    readonly name: string,
+    readonly block: Block,
+    readonly location: Location
+  ) {
+    invariant(
+      MODE_REGEX.test(name),
+      "Modes must be underscore seperated uppercase strings"
+    );
+  }
+
+  transpile(ctx: Context) {
+    invariant(
+      !ctx.modes.hasOwnProperty(this.name),
+      "Duplicate definition of message: " + this.name
+    );
+    ctx.modes[this.name] = this.block;
+    return "";
   }
 }
 

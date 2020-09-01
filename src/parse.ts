@@ -1,4 +1,4 @@
-import { Location } from "./ast";
+import { Location, Block } from "./ast";
 import { parse as pegParse, SyntaxError } from "./lang";
 import prettier from "prettier/standalone";
 import prettierBabel from "prettier/parser-babel";
@@ -37,13 +37,73 @@ export class Controller {
     readonly source: string,
     readonly size: number,
     readonly ledBuffer: Uint8Array,
-    readonly start: () => void,
-    readonly step: () => void,
+    readonly setup: () => void,
+    readonly loop: () => void,
     readonly message: (input: string) => void
   ) {}
 }
 
-export function compile(
+export function compile(source: string, inputNames: string[]) {
+  const ctx = new Context();
+  const ast = parse(source);
+  let transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
+
+  // Genate source code for each message
+  let blockSource: { [name: string]: string } = {};
+  Object.entries(ctx.messages).forEach(([name, block]) => {
+    blockSource[name] = block.transpile(ctx);
+  });
+  Object.keys(ctx.modes).forEach((name) => {
+    if (!blockSource.hasOwnProperty(name)) {
+      blockSource[name] = `{ set_mode(${name}); }`;
+    }
+  });
+
+  blockSource["*"] = blockSource["*"] || "{}";
+
+  transpiled =
+    [...Object.keys(ctx.modes).sort(), "NUM_DISPLAY_MODES"]
+      .map((mode, idx) => {
+        return `const ${mode} = ${idx};`;
+      })
+      .join("\n") + transpiled;
+
+  transpiled +=
+    "function message(msg) {\n" +
+    [
+      ...Object.entries(blockSource)
+        .filter(([name, source]) => name !== "*")
+        .map(([name, source]) => {
+          return `if (msg === ${JSON.stringify(name)}) ${source}`;
+        }),
+      blockSource["*"],
+    ].join(" else ") +
+    "}\n";
+
+  transpiled +=
+    "function render_mode() {\n" +
+    Object.entries(ctx.modes)
+      .map(([name, block]) => {
+        return `if (current_mode === ${name}) ${block.transpile(ctx)}`;
+      })
+      .join(" else ") +
+    "}\n";
+
+  const inputArgs = inputNames.join(",");
+  const header = `
+    (function() {
+        return function(${inputArgs}) {`;
+  const footer = `
+            return { setup, loop, message };
+        }
+    })()`;
+  return prettier.format(header + transpiled + footer, {
+    parser: "babel",
+    plugins: [prettierBabel],
+  });
+}
+
+export function createController(
   source: string,
   options: {
     log: (format: string, ...args: any) => void;
@@ -55,12 +115,9 @@ export function compile(
   const gamma8_floor = Array.from(Array(256)).map((v, idx) => idx);
   const gamma8_partial = Array.from(Array(256)).fill(0);
 
-  const ctx = new Context();
-  const ast = parse(source);
-  const transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
-
   const ROPE_LEDS = 300;
   const ledBuffer = new Uint8Array(ROPE_LEDS * 3);
+
   const inputs = {
     UINT_MAX: 65535,
     ROPE_LEDS,
@@ -102,23 +159,18 @@ export function compile(
       return Date.now();
     },
     digitalWrite() {},
+    switch_light() {},
+    strlen(str: string) {
+      return str.length;
+    },
+    hex2int(char: string) {
+      return parseInt(char, 16);
+    },
   };
-
-  const stepArgs = Object.keys(inputs).sort().join(",");
-  const header = `
-    (function() {
-        return function(${stepArgs}) {`;
-  const footer = `
-            return { start, step, message };
-        }
-    })()`;
-  const code = prettier.format(header + transpiled + footer, {
-    parser: "babel",
-    plugins: [prettierBabel],
-  });
+  const code = compile(source, Object.keys(inputs).sort());
 
   const build = eval(code);
-  const { start, step, message } = build(
+  const { setup, loop, message } = build(
     ...Object.keys(inputs)
       .sort()
       .map((k) => inputs[k])
@@ -128,8 +180,8 @@ export function compile(
     source,
     ROPE_LEDS,
     ledBuffer,
-    start,
-    step,
+    setup,
+    loop,
     (msg: string) => {
       for (const word of msg.split(" ")) {
         message(word.toUpperCase());

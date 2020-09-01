@@ -26,6 +26,50 @@
  * get the experience to be as good.
  * 
  * I'm open to pull requests of https://github.com/qix/weblight/blob/master/src/sample.c though :)
+ *
+ * == Standard library ==
+ * UINT_MAX: 65535,
+    ROPE_LEDS,
+    ledBuffer,
+    strcmp(left: string, right: string) {
+      return left.localeCompare(right);
+    },
+    random(min: number, max: number | null = null) {
+      if (max === null) {
+        max = min;
+        min = 0;
+      }
+      return min + Math.floor(Math.random() * (max - min));
+    },
+    rope_clear() {
+      ledBuffer.fill(0);
+    },
+    gamma8,
+    gamma8_floor,
+    gamma8_partial,
+    min(a: number, b: number) {
+      return Math.min(a, b);
+    },
+    max(a: number, b: number) {
+      return Math.max(a, b);
+    },
+    log: options.log,
+    uint8(value: number) {
+      return value & 255;
+    },
+    uint16(value: number) {
+      return value & 65535;
+    },
+    abs(value: number) {
+      return Math.abs(value);
+    },
+    delay(ms: number) {},
+    millis() {
+      return Date.now();
+    },
+    digitalWrite() {},
+    switch_light() {},
+ * 
  * 
  */
 
@@ -49,22 +93,6 @@ enum CollisionMode
     COLLIDE_BOOM = 1,
 };
 
-enum DisplayMode
-{
-    CHASE = 0,
-    FLOWER = 1,
-    RAINBOW = 2,
-    SPARKLE = 3,
-    PULSE = 4,
-    NOISE = 5,
-    RANDCHASE = 6,
-    NUM_DISPLAY_MODES = 7,
-
-    FLASH = 64,
-
-    OFF = 255,
-};
-
 enum ColorMode
 {
     HSV = 1,
@@ -85,14 +113,14 @@ struct ChasePoint
 };
 
 ChasePoint particles[MAX_PARTICLES];
-DisplayMode display_mode;
+DisplayMode current_mode;
 int last_auto = 0;
 
 int r_mult = 255;
 int g_mult = 255;
 int b_mult = 255;
 
-// These are all configured during display_setup()
+// These are all configured during set_mode()
 ColorMode color_mode = HSV;
 CollisionMode collision_mode = COLLIDE_OFF;
 bool collide_same_direction = false;
@@ -222,9 +250,10 @@ void mult_rgb(int r, int g, int b)
 }
 
 /**********************************************
- * Setup
+ ##############################################
+ #         Setup & Message Handling           #
+ ##############################################
  **********************************************/
-
 void switch_light(bool on)
 {
     if (on)
@@ -237,111 +266,10 @@ void switch_light(bool on)
     }
 }
 
-void display_setup(DisplayMode mode);
-void message(char *message)
-{
-    if (strcmp(message, "LIGHT") == 0)
-    {
-        switch_light(true);
-    }
-    else if (strcmp(message, "ON") == 0)
-    {
-        switch_light(true);
-        display_setup(CHASE);
-        last_auto = millis();
-    }
-    else if (strcmp(message, "CHASE") == 0)
-    {
-        display_setup(CHASE);
-    }
-    else if (strcmp(message, "RANDCHASE") == 0)
-    {
-        display_setup(RANDCHASE);
-    }
-    else if (strcmp(message, "FLOWER") == 0)
-    {
-        display_setup(FLOWER);
-    }
-    else if (strcmp(message, "GREEN") == 0)
-    {
-        mult_rgb(0, 255, 0);
-    }
-    else if (strcmp(message, "PULSE") == 0)
-    {
-        display_setup(PULSE);
-    }
-    else if (strcmp(message, "SPARKLE") == 0)
-    {
-        display_setup(SPARKLE);
-    }
-    else if (strcmp(message, "NOISE") == 0)
-    {
-        display_setup(NOISE);
-    }
-    else if (strcmp(message, "FLASH") == 0)
-    {
-        display_setup(FLASH);
-    }
-    else if (strcmp(message, "RED") == 0)
-    {
-        mult_rgb(255, 0, 0);
-    }
-    else if (strcmp(message, "GREEN") == 0)
-    {
-        mult_rgb(0, 255, 0);
-    }
-    else if (strcmp(message, "BLUE") == 0)
-    {
-        mult_rgb(0, 0, 255);
-    }
-    else if (strcmp(message, "YELLOW") == 0)
-    {
-        mult_rgb(255, 255, 0);
-    }
-    else if (strcmp(message, "TURQUOISE") == 0)
-    {
-        mult_rgb(0, 255, 255);
-    }
-    else if (strcmp(message, "PINK") == 0)
-    {
-        mult_rgb(255, 0, 255);
-    }
-    else if (strcmp(message, "RAINBOW") == 0)
-    {
-        display_setup(RAINBOW);
-    }
-    else if (strcmp(message, "RANDOM") == 0)
-    {
-        int next = random(NUM_DISPLAY_MODES);
-        while (next == display_mode)
-        {
-            next = random(NUM_DISPLAY_MODES);
-        }
-        display_setup(next);
-    }
-    else if (strcmp(message, "NEXT") == 0)
-    {
-        display_setup((display_mode + 1) % NUM_DISPLAY_MODES);
-    }
-    else if (strcmp(message, "OFF") == 0)
-    {
-        switch_light(false);
-        display_setup(OFF);
-    }
-    else if (strcmp(message, "AUTO") == 0)
-    {
-        if (display_mode >= NUM_DISPLAY_MODES)
-        {
-            display_setup(random(NUM_DISPLAY_MODES));
-        }
-        last_auto = millis() + 1;
-    }
-}
-
-void display_setup(DisplayMode mode)
+void set_mode(DisplayMode mode)
 {
     rope_clear();
-    display_mode = mode;
+    current_mode = mode;
 
     color_mode = HSV;
     last_auto = 0;
@@ -350,94 +278,177 @@ void display_setup(DisplayMode mode)
     state_loop = 0;
     collision_mode = COLLIDE_OFF;
     collide_same_direction = false;
+    r_mult = 0;
+    g_mult = 0;
+    b_mult = 0;
     for (int k = 0; k < MAX_PARTICLES; k++)
     {
         particles[k].age = 0;
         particles[k].len = 0;
         particles[k].respawn = 0;
     }
+}
 
-    if (mode == OFF)
+message LIGHT
+{
+    switch_light(true);
+}
+message ON
+{
+    switch_light(true);
+    set_mode(CHASE);
+    last_auto = millis();
+}
+message CHASE
+{
+    set_mode(CHASE);
+    for (int k = 0; k < 8; k++)
     {
-        fade_speed = 256;
+        particles[k].pos = random(POS_SCALE * ROPE_LEDS);
+        particles[k].hue = random(360);
+        particles[k].len = 8;
+        particles[k].speed = k == 0 ? -1 : k;
+        particles[k].hue_v = 1;
+        particles[k].bright = 255;
+        particles[k].wrap = true;
     }
-    else if (mode == CHASE)
-    {
-        for (int k = 0; k < 8; k++)
-        {
-            particles[k].pos = random(POS_SCALE * ROPE_LEDS);
-            particles[k].hue = random(360);
-            particles[k].len = 8;
-            particles[k].speed = k == 0 ? -1 : k;
-            particles[k].hue_v = 1;
-            particles[k].bright = 255;
-            particles[k].wrap = true;
-        }
-        collision_mode = COLLIDE_BOOM;
-        fade_speed = 64;
-    }
-    else if (mode == RANDCHASE)
-    {
-        // Take a random count, but make large numbers much less likely
-        int count = min(
-            random(4, MAX_PARTICLES + 1),
-            random(4, MAX_PARTICLES + 1),
-            random(2, MAX_PARTICLES + 1));
+    collision_mode = COLLIDE_BOOM;
+    fade_speed = 64;
+}
+message RANDCHASE
+{
+    set_mode(CHASE);
+    // Take a random count, but make large numbers much less likely
+    int count = min(
+        random(4, MAX_PARTICLES + 1),
+        random(4, MAX_PARTICLES + 1),
+        random(2, MAX_PARTICLES + 1));
 
-        int reverse = random(count);
-        for (int k = 0; k < count; k++)
-        {
-            particles[k].pos = random(POS_SCALE * ROPE_LEDS);
-            particles[k].hue = random(360);
-            particles[k].len = random(4, 8);
-            particles[k].speed = k <= reverse ? -random(1, count) : random(1, count);
-            particles[k].hue_v = random(1);
-            particles[k].bright = random(192, 256);
-            particles[k].wrap = true;
-        }
-        collision_mode = COLLIDE_BOOM;
-        collide_same_direction = random(1) ? true : false;
-        fade_speed = 64;
-    }
-    else if (mode == FLOWER)
+    int reverse = random(count);
+    for (int k = 0; k < count; k++)
     {
-        fade_speed = 2;
-        for (int k = 0; k < 2; k++)
-        {
-            particles[k].pos = 0;
-            particles[k].hue = 0;
-            particles[k].len = 50;
-            particles[k].speed = k == 0 ? -5 : +5;
-            particles[k].hue_v = 0;
-            particles[k].bright = 64;
-            particles[k].wrap = false;
-        }
-        fade_speed = 8;
-        color_mode = RGB;
-        mult_rgb(255, 0, 0);
+        particles[k].pos = random(POS_SCALE * ROPE_LEDS);
+        particles[k].hue = random(360);
+        particles[k].len = random(4, 8);
+        particles[k].speed = k <= reverse ? -random(1, count) : random(1, count);
+        particles[k].hue_v = random(1);
+        particles[k].bright = random(192, 256);
+        particles[k].wrap = true;
     }
-    else if (mode == FLASH)
+    collision_mode = COLLIDE_BOOM;
+    collide_same_direction = random(1) ? true : false;
+    fade_speed = 64;
+}
+message FLOWER
+{
+    set_mode(CHASE);
+    fade_speed = 2;
+    for (int k = 0; k < 2; k++)
     {
-        state_loop = (uint8_t)(512 / FLASH_STEP);
+        particles[k].pos = 0;
+        particles[k].hue = 0;
+        particles[k].len = 50;
+        particles[k].speed = k == 0 ? -5 : +5;
+        particles[k].hue_v = 0;
+        particles[k].bright = 64;
+        particles[k].wrap = false;
+    }
+    fade_speed = 8;
+    color_mode = RGB;
+    mult_rgb(255, 0, 0);
+}
+message PULSE
+{
+    set_mode(PULSE);
+    state_loop = 512;
+}
+message SPARKLE
+{
+    set_mode(SPARKLE);
+    fade_speed = 1;
+}
+message NOISE
+{
+    set_mode(NOISE);
+}
+message FLASH
+{
+    set_mode(FLASH);
+    state_loop = (uint8_t)(512 / FLASH_STEP);
 
-        // can't handle all the lights being white, need more power
-        mult_rgb(50, 50, 50);
-    }
-    else if (mode == PULSE)
+    // can't handle all the lights being white, need more power
+    mult_rgb(50, 50, 50);
+}
+message RED
+{
+    mult_rgb(255, 0, 0);
+}
+message GREEN
+{
+    mult_rgb(0, 255, 0);
+}
+message BLUE
+{
+    mult_rgb(0, 0, 255);
+}
+message YELLOW
+{
+    mult_rgb(255, 255, 0);
+}
+message TURQUOISE
+{
+    mult_rgb(0, 255, 255);
+}
+message PINK
+{
+    mult_rgb(255, 0, 255);
+}
+message RAINBOW
+{
+    set_mode(RAINBOW);
+    state_loop = 360;
+}
+message RANDOM
+{
+    int next = random(NUM_DISPLAY_MODES);
+    while (next == current_mode)
     {
-        state_loop = 512;
+        next = random(NUM_DISPLAY_MODES);
     }
-    else if (mode == RAINBOW)
+    set_mode(next);
+}
+message NEXT
+{
+    set_mode((current_mode + 1) % NUM_DISPLAY_MODES);
+}
+message OFF
+{
+    switch_light(false);
+    set_mode(OFF);
+}
+message AUTO
+{
+    if (current_mode >= NUM_DISPLAY_MODES)
     {
-        state_loop = 360;
+        set_mode(random(NUM_DISPLAY_MODES));
     }
-    else if (mode == NOISE)
+    last_auto = millis() + 1;
+}
+
+message *
+{
+    if (msg[0] == '#')
     {
-        // no setup
-    }
-    else if (mode == SPARKLE)
-    {
-        fade_speed = 1;
+        if (strlen(msg) == 7)
+        {
+            int color[3] = {0, 0, 0};
+            int i = 0;
+            for (int k = 1; k < 7; k += 2)
+            {
+                color[i++] = hex2int(msg[k]) * 16 + hex2int(msg[k + 1]);
+            }
+            mult_rgb(color[0], color[1], color[2]);
+        }
     }
 }
 
@@ -446,20 +457,22 @@ void display_setup(DisplayMode mode)
  */
 void display_reset(void)
 {
-    if (display_mode == FLASH)
+    if (current_mode == FLASH)
     {
-        display_setup(OFF);
+        set_mode(OFF);
     }
 }
 
-void start(void)
+void setup(void)
 {
     log("Display started!");
-    display_setup(OFF);
+    set_mode(OFF);
 }
 
 /**********************************************
- * Step functions
+ ##############################################
+ #           Modes & Loop Function            #
+ ##############################################
  **********************************************/
 
 void point_render(int k)
@@ -531,122 +544,113 @@ int distance(int k, int j)
     return min(d, ROPE_LEDS - d);
 }
 
-void render_display(void)
+mode OFF
 {
-    if (last_auto > 0)
-    {
-        if (millis() - last_auto > 5000)
-        {
-            display_setup((display_mode + 1) % NUM_DISPLAY_MODES);
-            last_auto = millis();
-        }
-    }
+    rope_rgb(0, 0, 0);
+}
 
-    if (display_mode == PULSE)
+mode GLOW
+{
+    for (int k = 0; k < ROPE_LEDS; k++)
     {
-        int pulse = 0;
-        if (state < 256)
+        if (k < 200 && k % 2 == 0)
         {
-            pulse = state % 256;
+            rgb(k, r_mult, g_mult, b_mult);
         }
         else
         {
-            pulse = 255 - (state - 256) % 256;
-        }
-
-        rope_rgb(min(32 + pulse, 255), 0, 0);
-    }
-    else if (display_mode == SPARKLE)
-    {
-        if (state % 5 == 0)
-        {
-            hsv(random(ROPE_LEDS), random(360), 255, random(96, 256), COLOR_ADD);
-        }
-        if (state % 2 == 0)
-        {
-            rope_fade(1);
-        }
-        delay(10);
-    }
-    else if (display_mode == NOISE)
-    {
-        for (int i = 0; i < ROPE_LEDS; i++)
-        {
-            uint8_t value = gamma8_floor[random(256)];
-            rgb(i, value, value, value);
+            rgb(k, 0, 0, 0);
         }
     }
-    else if (display_mode == FLASH)
+}
+message GLOW
+{
+    set_mode(GLOW);
+    mult_rgb(200, 120, 30);
+}
+
+mode PULSE
+{
+    int pulse = 0;
+    if (state < 256)
     {
-        int partial = 0;
-        int flashState = state * FLASH_STEP;
-        int bright = min(255, (flashState > 255 ? 512 - flashState : flashState));
-
-        for (int i = 0; i < ROPE_LEDS; i++)
-        {
-            uint8_t value = gamma8_floor[bright];
-
-            partial = gamma8_partial[bright];
-            if (partial >= 128 && i % 2 == 0)
-            {
-                value += 1;
-            }
-            else if (partial >= 64 && i % 4 == 0)
-            {
-                value += 1;
-            }
-            else if (partial >= 32 && i % 8 == 0)
-            {
-                value += 1;
-            }
-            else if (partial >= 16 && i % 16 == 0)
-            {
-                value += 1;
-            }
-
-            rgb(i, min(r_mult, value), min(g_mult, value), min(b_mult, value));
-        }
-        return;
-
-        if (state < 11)
-        {
-            for (int center = 10; center < ROPE_LEDS - 10; center += 20)
-            {
-                for (int k = 0; k <= 10; k++)
-                {
-                    rgb(center + k, k < state ? 255 : 0, 0, 0);
-                    rgb(center - k, k < state ? 255 : 0, 0, 0);
-                }
-            }
-        }
-        else if (state > 12)
-        {
-            int bright = 256 - (state - 12); // * 16;
-            if (bright == 0)
-            {
-                display_setup(OFF);
-                return;
-            }
-            rope_rgb(gamma8[bright], 0, 0);
-        }
-        delay(50);
-    }
-    else if (display_mode == RAINBOW)
-    {
-        particles[0].pos = (particles[0].pos + 1) % ROPE_LEDS;
-        int dark = particles[0].pos;
-
-        for (int k = 0; k < ROPE_LEDS; k++)
-        {
-            int dist = distance(k, dark);
-            hsv(k, (state + k) % 360, 255, dist < 25 ? 255 - 10 * (25 - dist) : 255);
-        }
-        delay(50);
+        pulse = state % 256;
     }
     else
     {
-        rope_fade(fade_speed);
+        pulse = 255 - (state - 256) % 256;
     }
+
+    rope_rgb(min(32 + pulse, 255), 0, 0);
+}
+mode SPARKLE
+{
+    if (state % 5 == 0)
+    {
+        hsv(random(ROPE_LEDS), random(360), 255, random(96, 256), COLOR_ADD);
+    }
+    if (state % 2 == 0)
+    {
+        rope_fade(1);
+    }
+    delay(10);
+}
+mode NOISE
+{
+    for (int i = 0; i < ROPE_LEDS; i++)
+    {
+        uint8_t value = gamma8_floor[random(256)];
+        rgb(i, value, value, value);
+    }
+}
+mode FLASH
+{
+    int partial = 0;
+    int flashState = state * FLASH_STEP;
+    int bright = min(255, (flashState > 255 ? 512 - flashState : flashState));
+
+    for (int i = 0; i < ROPE_LEDS; i++)
+    {
+        uint8_t value = gamma8_floor[bright];
+
+        partial = gamma8_partial[bright];
+        if (partial >= 128 && i % 2 == 0)
+        {
+            value += 1;
+        }
+        else if (partial >= 64 && i % 4 == 0)
+        {
+            value += 1;
+        }
+        else if (partial >= 32 && i % 8 == 0)
+        {
+            value += 1;
+        }
+        else if (partial >= 16 && i % 16 == 0)
+        {
+            value += 1;
+        }
+
+        rgb(i, min(r_mult, value), min(g_mult, value), min(b_mult, value));
+    }
+}
+
+mode RAINBOW
+{
+    particles[0].pos = (particles[0].pos + 1) % ROPE_LEDS;
+    int dark = particles[0].pos;
+
+    for (int k = 0; k < ROPE_LEDS; k++)
+    {
+        int dist = distance(k, dark);
+        hsv(k, (state + k) % 360, 255, dist < 25 ? 255 - 10 * (25 - dist) : 255);
+    }
+    delay(50);
+}
+
+mode CHASE
+{
+    rope_fade(fade_speed);
 
     for (int k = 0; k < MAX_PARTICLES; k++)
     {
@@ -717,21 +721,7 @@ void render_display(void)
     }
 }
 
-void step(void)
-{
-    render_display();
-    state = (uint16_t)(state + 1);
-    if (state_loop && state >= state_loop)
-    {
-        state = 0;
-        display_reset();
-    }
-}
-
-/**********************************************
- * Unused animations
- **********************************************/
-void led_positions(void)
+mode LEDS
 {
     for (int k = 0; k < ROPE_LEDS; k++)
     {
@@ -754,12 +744,34 @@ void led_positions(void)
     }
 }
 
-void render_join_halves(void)
+mode JOIN_HALVES
 {
     int half = ROPE_LEDS / 2;
     for (int k = 0; k < half; k++)
     {
         hsv(k, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
         hsv(ROPE_LEDS - k - 1, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
+    }
+}
+
+void loop(void)
+{
+    if (last_auto > 0)
+    {
+        if (millis() - last_auto > 5000)
+        {
+            set_mode((current_mode + 1) % NUM_DISPLAY_MODES);
+            last_auto = millis();
+        }
+    }
+
+    // This calls the mode function for the `current_mode`
+    render_mode();
+
+    state = (uint16_t)(state + 1);
+    if (state_loop && state >= state_loop)
+    {
+        state = 0;
+        display_reset();
     }
 }

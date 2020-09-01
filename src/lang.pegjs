@@ -22,7 +22,7 @@ Script = statements:BlockStatement* _? {
     return new Block(statements, location());
 }
 
-BlockStatement = _? statement:(Define / For / While / If / Switch / DefineFunc / PredefineFunc / ClosedStatement) {
+BlockStatement = _? statement:(Define / Mode / Message / For / While / If / Switch / DefineFunc / PredefineFunc / ClosedStatement) {
     return statement;
 };
 
@@ -31,6 +31,13 @@ ClosedStatement = _? statement:Statement _? ";" {
 }
 
 Statement = Return / Enum / Struct / DefineArray / DefineVar / Expr;
+
+Message = "message" _ name:(Id / "*") _? block:Block {
+  return new Message(name, block, location());
+}
+Mode = "mode" _ name:Id _? block:Block {
+  return new Mode(name, block, location());
+}
 
 Enum = "enum" _ name:Id _? "{" _? first:SimpleAssign rest:(_? "," _? SimpleAssign)* _? ","? _? "}" {
     return new Enum(name, [first, ...rest.map(r => r[3])], location());
@@ -285,8 +292,12 @@ Id = [A-Za-z0-9_]+ {
   return text();
 }
 
-Literal = value:(Number / String / True / False / Null) {
+Literal = value:(Number / Char / String / True / False / Null) {
   return new Constant(value, location());
+}
+
+Char = "'" char:StringChar "'" {
+  return char;
 }
 
 String = '"' chars:StringChar* '"' { return chars.join(""); }

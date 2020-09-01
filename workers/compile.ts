@@ -1,4 +1,4 @@
-import { Controller, compile, sourceArrow } from "../src/parse";
+import { Controller, sourceArrow, createController } from "../src/parse";
 
 const COMPILE_DEBOUNCE_MS = 15;
 
@@ -70,7 +70,7 @@ addEventListener("message", (event) => {
     }
     compileTimeout = setTimeout(() => {
       try {
-        controller = compile(source, {
+        controller = createController(source, {
           log: (format: string, ...args: any[]) => {
             respond({
               type: "log",
@@ -100,9 +100,11 @@ addEventListener("message", (event) => {
           message,
           source,
         });
+        return;
       }
+
       tryRuntime(() => {
-        controller.start();
+        controller.setup();
         controller.message(lastMessage);
       });
     }, COMPILE_DEBOUNCE_MS);
@@ -117,7 +119,7 @@ addEventListener("message", (event) => {
 setInterval(() => {
   if (controller) {
     tryRuntime(() => {
-      controller.step();
+      controller.loop();
 
       respond({
         type: "render",
