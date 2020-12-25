@@ -53,7 +53,9 @@
     max(a: number, b: number) {
       return Math.max(a, b);
     },
-    log: options.log,
+    Log: {
+        info(message: string)
+    },
     uint8(value: number) {
       return value & 255;
     },
@@ -465,7 +467,7 @@ void display_reset(void)
 
 void setup(void)
 {
-    log("Display started!");
+    Log.info("Display started!");
     set_mode(OFF);
 }
 
@@ -534,7 +536,7 @@ void point_render(int k)
     }
     else
     {
-        log("Unknown color_mode");
+        Log.info("Unknown color_mode");
     }
 }
 
@@ -709,7 +711,7 @@ mode CHASE
                              (collide_same_direction || particles[k].speed * particles[j].speed < 0));
             if (collided)
             {
-                log("Boom!");
+                Log.info("Boom!");
                 // Set the particles to respawn, but give enough time to fade out
                 particles[k].respawn = 256 + random(256);
                 particles[k].age = 0;
