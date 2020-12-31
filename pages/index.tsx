@@ -3,7 +3,7 @@ import dynamic from "next/dynamic";
 
 import styles from "../styles/Home.module.css";
 import { useEffect, useState, useRef } from "react";
-import { generateCoords } from "../src/points";
+import { generateCoords, getCoordCount } from "../src/points";
 import SAMPLE from "../src/sample.c";
 import { Request, Response } from "../workers/compile";
 
@@ -22,11 +22,16 @@ export default function Home() {
   const [, setLogId] = useState(LOG_ID);
   const [source, setSource] = useState(SAMPLE);
   const [message, setMessage] = useState("");
+  const [offscreen, setOffscreen] = useState<OffscreenCanvas>(null);
 
   function recompile() {
     clearLog("Compiling...");
     lastSource.current = source;
-    req({ type: "compile", source });
+    req({
+      type: "compile",
+      source,
+      ledCount: getCoordCount(),
+    });
   }
 
   if (lastSource.current !== source && worker.current) {
@@ -46,16 +51,21 @@ export default function Home() {
   }
 
   function render(buffer: Uint8Array) {
-    const ctx = canvas.current.getContext("2d");
     const width = canvas.current.clientWidth;
     const height = canvas.current.clientHeight;
 
-    if (canvas.current.width !== width || canvas.current.height !== height) {
+    let offscreenCanvas = offscreen;
+    if (!offscreen || canvas.current.width !== width || canvas.current.height !== height) {
       canvas.current.width = width;
       canvas.current.height = height;
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, width, height);
+
+      offscreenCanvas = new OffscreenCanvas(width, height);
+      setOffscreen(offscreenCanvas);
     }
+
+    const ctx = offscreenCanvas.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, width, height);
 
     const { xCoord, yCoord } = generateCoords(width, height);
 
@@ -72,6 +82,11 @@ export default function Home() {
       ctx.fillStyle = color;
       ctx.fillRect(xCoord[pixel] - 2, yCoord[pixel] - 2, 4, 4);
     }
+
+    const bitmap = offscreenCanvas.transferToImageBitmap();
+    const renderer = canvas.current.getContext('bitmaprenderer');
+    renderer.transferFromImageBitmap(bitmap);
+    req({ type: "rendered" });
   }
 
   function clearLog(message: string) {
@@ -128,10 +143,6 @@ export default function Home() {
     recompile();
     setMessage(defaultMode);
     req({ type: "message", message: defaultMode });
-
-    const ctx = canvas.current.getContext("2d");
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, canvas.current.width, canvas.current.height);
 
     return () => {
       worker.current.terminate();

@@ -1,86 +1,223 @@
-/**
- * 'weblight': Online program editor for some LED wall art I've been working on.
- *
- * === Lights ===
- * 
- * Lights are a WS2812B LED strip. The code that controls the lights is listed (and editable!) below.
- * For a more simple example, swap out the call to 'render_display()' with render_join_halves()' at the
- * bottom.
- * 
- * There is an video of the light in action: https://www.instagram.com/p/CEUXn-MJYs_/
- *
- * === Messages ===
- * 
- * The controller supports basic messages sent over WiFi. Try typing 'RAINBOW' in the text box on the
- * right. The message() function will be called with the individual words.
- *
- * === Editor ===
- * The editor is using a simple transpiler to convert the C code below into JavaScript compatible
- * code. The compiler and main loop runs in a web worker, sending over the LED data.
- *
- * Source: https://github.com/qix/weblight
- *
- * === Saving ===
- * 
- * Not implemented yet. I could probably get this working inside JSFiddle but I'm not sure I could
- * get the experience to be as good.
- * 
- * I'm open to pull requests of https://github.com/qix/weblight/blob/master/src/sample.c though :)
- *
- * == Standard library ==
- * UINT_MAX: 65535,
-    ROPE_LEDS,
-    ledBuffer,
-    strcmp(left: string, right: string) {
-      return left.localeCompare(right);
-    },
-    random(min: number, max: number | null = null) {
-      if (max === null) {
-        max = min;
-        min = 0;
-      }
-      return min + Math.floor(Math.random() * (max - min));
-    },
-    rope_clear() {
-      ledBuffer.fill(0);
-    },
-    gamma8,
-    gamma8_floor,
-    gamma8_partial,
-    min(a: number, b: number) {
-      return Math.min(a, b);
-    },
-    max(a: number, b: number) {
-      return Math.max(a, b);
-    },
-    Log: {
-        info(message: string)
-    },
-    uint8(value: number) {
-      return value & 255;
-    },
-    uint16(value: number) {
-      return value & 65535;
-    },
-    abs(value: number) {
-      return Math.abs(value);
-    },
-    delay(ms: number) {},
-    millis() {
-      return Date.now();
-    },
-    digitalWrite() {},
-    switch_light() {},
- * 
- * 
- */
+#define ROPE_OFFSET 0
 
-// Maximum supported number of points
-#define MAX_PARTICLES 32
-// Scale to calculate position using (allows particles to be midway between positions)
-#define POS_SCALE 10
-// Maximum position for any particle
-#define POS_MAX (ROPE_LEDS * POS_SCALE)
+struct GFXglyph
+{
+    uint16_t bitmapOffset; ///< Pointer into GFXfont->bitmap
+    uint8_t width;         ///< Bitmap dimensions in pixels
+    uint8_t height;        ///< Bitmap dimensions in pixels
+    uint8_t xAdvance;      ///< Distance to advance cursor (x axis)
+    int8_t xOffset;        ///< X dist from cursor pos to UL corner
+    int8_t yOffset;        ///< Y dist from cursor pos to UL corner
+};
+
+/// Data stored for FONT AS A WHOLE
+struct GFXFont
+{
+    uint8_t *bitmap;  ///< Glyph bitmaps, concatenated
+    GFXglyph *glyph;  ///< Glyph array
+    uint16_t first;   ///< ASCII extents (first char)
+    uint16_t last;    ///< ASCII extents (last char)
+    uint8_t yAdvance; ///< Newline distance (y axis)
+};
+
+const uint8_t FreeSans9pt7bBitmaps[] = {
+    0xFF, 0xFF, 0xF8, 0xC0, 0xDE, 0xF7, 0x20, 0x09, 0x86, 0x41, 0x91, 0xFF,
+    0x13, 0x04, 0xC3, 0x20, 0xC8, 0xFF, 0x89, 0x82, 0x61, 0x90, 0x10, 0x1F,
+    0x14, 0xDA, 0x3D, 0x1E, 0x83, 0x40, 0x78, 0x17, 0x08, 0xF4, 0x7A, 0x35,
+    0x33, 0xF0, 0x40, 0x20, 0x38, 0x10, 0xEC, 0x20, 0xC6, 0x20, 0xC6, 0x40,
+    0xC6, 0x40, 0x6C, 0x80, 0x39, 0x00, 0x01, 0x3C, 0x02, 0x77, 0x02, 0x63,
+    0x04, 0x63, 0x04, 0x77, 0x08, 0x3C, 0x0E, 0x06, 0x60, 0xCC, 0x19, 0x81,
+    0xE0, 0x18, 0x0F, 0x03, 0x36, 0xC2, 0xD8, 0x73, 0x06, 0x31, 0xE3, 0xC4,
+    0xFE, 0x13, 0x26, 0x6C, 0xCC, 0xCC, 0xC4, 0x66, 0x23, 0x10, 0x8C, 0x46,
+    0x63, 0x33, 0x33, 0x32, 0x66, 0x4C, 0x80, 0x25, 0x7E, 0xA5, 0x00, 0x30,
+    0xC3, 0x3F, 0x30, 0xC3, 0x0C, 0xD6, 0xF0, 0xC0, 0x08, 0x44, 0x21, 0x10,
+    0x84, 0x42, 0x11, 0x08, 0x00, 0x3C, 0x66, 0x42, 0xC3, 0xC3, 0xC3, 0xC3,
+    0xC3, 0xC3, 0xC3, 0x42, 0x66, 0x3C, 0x11, 0x3F, 0x33, 0x33, 0x33, 0x33,
+    0x30, 0x3E, 0x31, 0xB0, 0x78, 0x30, 0x18, 0x1C, 0x1C, 0x1C, 0x18, 0x18,
+    0x10, 0x08, 0x07, 0xF8, 0x3C, 0x66, 0xC3, 0xC3, 0x03, 0x06, 0x1C, 0x07,
+    0x03, 0xC3, 0xC3, 0x66, 0x3C, 0x0C, 0x18, 0x71, 0x62, 0xC9, 0xA3, 0x46,
+    0xFE, 0x18, 0x30, 0x60, 0xC0, 0x7F, 0x20, 0x10, 0x08, 0x08, 0x07, 0xF3,
+    0x8C, 0x03, 0x01, 0x80, 0xF0, 0x6C, 0x63, 0xE0, 0x1E, 0x31, 0x98, 0x78,
+    0x0C, 0x06, 0xF3, 0x8D, 0x83, 0xC1, 0xE0, 0xD0, 0x6C, 0x63, 0xE0, 0xFF,
+    0x03, 0x02, 0x06, 0x04, 0x0C, 0x08, 0x18, 0x18, 0x18, 0x10, 0x30, 0x30,
+    0x3E, 0x31, 0xB0, 0x78, 0x3C, 0x1B, 0x18, 0xF8, 0xC6, 0xC1, 0xE0, 0xF0,
+    0x6C, 0x63, 0xE0, 0x3C, 0x66, 0xC2, 0xC3, 0xC3, 0xC3, 0x67, 0x3B, 0x03,
+    0x03, 0xC2, 0x66, 0x3C, 0xC0, 0x00, 0x30, 0xC0, 0x00, 0x00, 0x64, 0xA0,
+    0x00, 0x81, 0xC7, 0x8E, 0x0C, 0x07, 0x80, 0x70, 0x0E, 0x01, 0x80, 0xFF,
+    0x80, 0x00, 0x1F, 0xF0, 0x00, 0x70, 0x0E, 0x01, 0xC0, 0x18, 0x38, 0x71,
+    0xC0, 0x80, 0x00, 0x3E, 0x31, 0xB0, 0x78, 0x30, 0x18, 0x18, 0x38, 0x18,
+    0x18, 0x0C, 0x00, 0x00, 0x01, 0x80, 0x03, 0xF0, 0x06, 0x0E, 0x06, 0x01,
+    0x86, 0x00, 0x66, 0x1D, 0xBB, 0x31, 0xCF, 0x18, 0xC7, 0x98, 0x63, 0xCC,
+    0x31, 0xE6, 0x11, 0xB3, 0x99, 0xCC, 0xF7, 0x86, 0x00, 0x01, 0x80, 0x00,
+    0x70, 0x40, 0x0F, 0xE0, 0x06, 0x00, 0xF0, 0x0F, 0x00, 0x90, 0x19, 0x81,
+    0x98, 0x10, 0x83, 0x0C, 0x3F, 0xC2, 0x04, 0x60, 0x66, 0x06, 0xC0, 0x30,
+    0xFF, 0x18, 0x33, 0x03, 0x60, 0x6C, 0x0D, 0x83, 0x3F, 0xC6, 0x06, 0xC0,
+    0x78, 0x0F, 0x01, 0xE0, 0x6F, 0xF8, 0x1F, 0x86, 0x19, 0x81, 0xA0, 0x3C,
+    0x01, 0x80, 0x30, 0x06, 0x00, 0xC0, 0x68, 0x0D, 0x83, 0x18, 0x61, 0xF0,
+    0xFF, 0x18, 0x33, 0x03, 0x60, 0x3C, 0x07, 0x80, 0xF0, 0x1E, 0x03, 0xC0,
+    0x78, 0x0F, 0x03, 0x60, 0xCF, 0xF0, 0xFF, 0xE0, 0x30, 0x18, 0x0C, 0x06,
+    0x03, 0xFD, 0x80, 0xC0, 0x60, 0x30, 0x18, 0x0F, 0xF8, 0xFF, 0xC0, 0xC0,
+    0xC0, 0xC0, 0xC0, 0xFE, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0x0F, 0x83,
+    0x0E, 0x60, 0x66, 0x03, 0xC0, 0x0C, 0x00, 0xC1, 0xFC, 0x03, 0xC0, 0x36,
+    0x03, 0x60, 0x73, 0x0F, 0x0F, 0x10, 0xC0, 0x78, 0x0F, 0x01, 0xE0, 0x3C,
+    0x07, 0x80, 0xFF, 0xFE, 0x03, 0xC0, 0x78, 0x0F, 0x01, 0xE0, 0x3C, 0x06,
+    0xFF, 0xFF, 0xFF, 0xC0, 0x06, 0x0C, 0x18, 0x30, 0x60, 0xC1, 0x83, 0x07,
+    0x8F, 0x1E, 0x27, 0x80, 0xC0, 0xD8, 0x33, 0x0C, 0x63, 0x0C, 0xC1, 0xB8,
+    0x3F, 0x07, 0x30, 0xC3, 0x18, 0x63, 0x06, 0x60, 0x6C, 0x0C, 0xC0, 0xC0,
+    0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xC0, 0xFF, 0xE0,
+    0x3F, 0x01, 0xFC, 0x1F, 0xE0, 0xFD, 0x05, 0xEC, 0x6F, 0x63, 0x79, 0x13,
+    0xCD, 0x9E, 0x6C, 0xF1, 0x47, 0x8E, 0x3C, 0x71, 0x80, 0xE0, 0x7C, 0x0F,
+    0xC1, 0xE8, 0x3D, 0x87, 0x98, 0xF1, 0x1E, 0x33, 0xC3, 0x78, 0x6F, 0x07,
+    0xE0, 0x7C, 0x0E, 0x0F, 0x81, 0x83, 0x18, 0x0C, 0xC0, 0x6C, 0x01, 0xE0,
+    0x0F, 0x00, 0x78, 0x03, 0xC0, 0x1B, 0x01, 0x98, 0x0C, 0x60, 0xC0, 0xF8,
+    0x00, 0xFF, 0x30, 0x6C, 0x0F, 0x03, 0xC0, 0xF0, 0x6F, 0xF3, 0x00, 0xC0,
+    0x30, 0x0C, 0x03, 0x00, 0xC0, 0x00, 0x0F, 0x81, 0x83, 0x18, 0x0C, 0xC0,
+    0x6C, 0x01, 0xE0, 0x0F, 0x00, 0x78, 0x03, 0xC0, 0x1B, 0x01, 0x98, 0x6C,
+    0x60, 0xC0, 0xFB, 0x00, 0x08, 0xFF, 0x8C, 0x0E, 0xC0, 0x6C, 0x06, 0xC0,
+    0x6C, 0x0C, 0xFF, 0x8C, 0x0E, 0xC0, 0x6C, 0x06, 0xC0, 0x6C, 0x06, 0xC0,
+    0x70, 0x3F, 0x18, 0x6C, 0x0F, 0x03, 0xC0, 0x1E, 0x01, 0xF0, 0x0E, 0x00,
+    0xF0, 0x3C, 0x0D, 0x86, 0x3F, 0x00, 0xFF, 0x86, 0x03, 0x01, 0x80, 0xC0,
+    0x60, 0x30, 0x18, 0x0C, 0x06, 0x03, 0x01, 0x80, 0xC0, 0xC0, 0x78, 0x0F,
+    0x01, 0xE0, 0x3C, 0x07, 0x80, 0xF0, 0x1E, 0x03, 0xC0, 0x78, 0x0F, 0x01,
+    0xB0, 0x61, 0xF0, 0xC0, 0x6C, 0x0D, 0x81, 0x10, 0x63, 0x0C, 0x61, 0x04,
+    0x60, 0xCC, 0x19, 0x01, 0x60, 0x3C, 0x07, 0x00, 0x60, 0xC1, 0x81, 0x30,
+    0xE1, 0x98, 0x70, 0xCC, 0x28, 0x66, 0x26, 0x21, 0x13, 0x30, 0xC8, 0x98,
+    0x6C, 0x4C, 0x14, 0x34, 0x0A, 0x1A, 0x07, 0x07, 0x03, 0x03, 0x80, 0x81,
+    0x80, 0x60, 0x63, 0x0C, 0x30, 0xC1, 0x98, 0x0F, 0x00, 0xE0, 0x06, 0x00,
+    0xF0, 0x19, 0x01, 0x98, 0x30, 0xC6, 0x0E, 0x60, 0x60, 0xC0, 0x36, 0x06,
+    0x30, 0xC3, 0x0C, 0x19, 0x81, 0xD8, 0x0F, 0x00, 0x60, 0x06, 0x00, 0x60,
+    0x06, 0x00, 0x60, 0x06, 0x00, 0xFF, 0xC0, 0x60, 0x30, 0x0C, 0x06, 0x03,
+    0x01, 0xC0, 0x60, 0x30, 0x18, 0x06, 0x03, 0x00, 0xFF, 0xC0, 0xFB, 0x6D,
+    0xB6, 0xDB, 0x6D, 0xB6, 0xE0, 0x84, 0x10, 0x84, 0x10, 0x84, 0x10, 0x84,
+    0x10, 0x80, 0xED, 0xB6, 0xDB, 0x6D, 0xB6, 0xDB, 0xE0, 0x30, 0x60, 0xA2,
+    0x44, 0xD8, 0xA1, 0x80, 0xFF, 0xC0, 0xC6, 0x30, 0x7E, 0x71, 0xB0, 0xC0,
+    0x60, 0xF3, 0xDB, 0x0D, 0x86, 0xC7, 0x3D, 0xC0, 0xC0, 0x60, 0x30, 0x1B,
+    0xCE, 0x36, 0x0F, 0x07, 0x83, 0xC1, 0xE0, 0xF0, 0x7C, 0x6D, 0xE0, 0x3C,
+    0x66, 0xC3, 0xC0, 0xC0, 0xC0, 0xC0, 0xC3, 0x66, 0x3C, 0x03, 0x03, 0x03,
+    0x3B, 0x67, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0x67, 0x3B, 0x3C, 0x66,
+    0xC3, 0xC3, 0xFF, 0xC0, 0xC0, 0xC3, 0x66, 0x3C, 0x36, 0x6F, 0x66, 0x66,
+    0x66, 0x66, 0x60, 0x3B, 0x67, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0x67,
+    0x3B, 0x03, 0x03, 0xC6, 0x7C, 0xC0, 0xC0, 0xC0, 0xDE, 0xE3, 0xC3, 0xC3,
+    0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, 0xC0, 0x30, 0x03,
+    0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0xE0, 0xC0, 0x60, 0x30, 0x18, 0x4C,
+    0x46, 0x63, 0x61, 0xF0, 0xEC, 0x62, 0x31, 0x98, 0x6C, 0x30, 0xFF, 0xFF,
+    0xFF, 0xC0, 0xDE, 0xF7, 0x1C, 0xF0, 0xC7, 0x86, 0x3C, 0x31, 0xE1, 0x8F,
+    0x0C, 0x78, 0x63, 0xC3, 0x1E, 0x18, 0xC0, 0xDE, 0xE3, 0xC3, 0xC3, 0xC3,
+    0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0x3C, 0x66, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3,
+    0xC3, 0x66, 0x3C, 0xDE, 0x71, 0xB0, 0x78, 0x3C, 0x1E, 0x0F, 0x07, 0x83,
+    0xE3, 0x6F, 0x30, 0x18, 0x0C, 0x00, 0x3B, 0x67, 0xC3, 0xC3, 0xC3, 0xC3,
+    0xC3, 0xC3, 0x67, 0x3B, 0x03, 0x03, 0x03, 0xDF, 0x31, 0x8C, 0x63, 0x18,
+    0xC6, 0x00, 0x3E, 0xE3, 0xC0, 0xC0, 0xE0, 0x3C, 0x07, 0xC3, 0xE3, 0x7E,
+    0x66, 0xF6, 0x66, 0x66, 0x66, 0x67, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3,
+    0xC3, 0xC3, 0xC7, 0x7B, 0xC1, 0xA0, 0x98, 0xCC, 0x42, 0x21, 0xB0, 0xD0,
+    0x28, 0x1C, 0x0C, 0x00, 0xC6, 0x1E, 0x38, 0x91, 0xC4, 0xCA, 0x66, 0xD3,
+    0x16, 0xD0, 0xA6, 0x87, 0x1C, 0x38, 0xC0, 0xC6, 0x00, 0x43, 0x62, 0x36,
+    0x1C, 0x18, 0x1C, 0x3C, 0x26, 0x62, 0x43, 0xC1, 0x21, 0x98, 0xCC, 0x42,
+    0x61, 0xB0, 0xD0, 0x38, 0x1C, 0x0C, 0x06, 0x03, 0x01, 0x03, 0x00, 0xFE,
+    0x0C, 0x30, 0xC1, 0x86, 0x18, 0x20, 0xC1, 0xFC, 0x36, 0x66, 0x66, 0x6E,
+    0xCE, 0x66, 0x66, 0x66, 0x30, 0xFF, 0xFF, 0xFF, 0xFF, 0xC0, 0xC6, 0x66,
+    0x66, 0x67, 0x37, 0x66, 0x66, 0x66, 0xC0, 0x61, 0x24, 0x38};
+
+const GFXglyph FreeSans9pt7bGlyphs[] = {
+    {0, 0, 0, 5, 0, 1},        // 0x20 ' '
+    {0, 2, 13, 6, 2, -12},     // 0x21 '!'
+    {4, 5, 4, 6, 1, -12},      // 0x22 '"'
+    {7, 10, 12, 10, 0, -11},   // 0x23 '#'
+    {22, 9, 16, 10, 1, -13},   // 0x24 '$'
+    {40, 16, 13, 16, 1, -12},  // 0x25 '%'
+    {66, 11, 13, 12, 1, -12},  // 0x26 '&'
+    {84, 2, 4, 4, 1, -12},     // 0x27 '''
+    {85, 4, 17, 6, 1, -12},    // 0x28 '('
+    {94, 4, 17, 6, 1, -12},    // 0x29 ')'
+    {103, 5, 5, 7, 1, -12},    // 0x2A '*'
+    {107, 6, 8, 11, 3, -7},    // 0x2B '+'
+    {113, 2, 4, 5, 2, 0},      // 0x2C ','
+    {114, 4, 1, 6, 1, -4},     // 0x2D '-'
+    {115, 2, 1, 5, 1, 0},      // 0x2E '.'
+    {116, 5, 13, 5, 0, -12},   // 0x2F '/'
+    {125, 8, 13, 10, 1, -12},  // 0x30 '0'
+    {138, 4, 13, 10, 3, -12},  // 0x31 '1'
+    {145, 9, 13, 10, 1, -12},  // 0x32 '2'
+    {160, 8, 13, 10, 1, -12},  // 0x33 '3'
+    {173, 7, 13, 10, 2, -12},  // 0x34 '4'
+    {185, 9, 13, 10, 1, -12},  // 0x35 '5'
+    {200, 9, 13, 10, 1, -12},  // 0x36 '6'
+    {215, 8, 13, 10, 0, -12},  // 0x37 '7'
+    {228, 9, 13, 10, 1, -12},  // 0x38 '8'
+    {243, 8, 13, 10, 1, -12},  // 0x39 '9'
+    {256, 2, 10, 5, 1, -9},    // 0x3A ':'
+    {259, 3, 12, 5, 1, -8},    // 0x3B ';'
+    {264, 9, 9, 11, 1, -8},    // 0x3C '<'
+    {275, 9, 4, 11, 1, -5},    // 0x3D '='
+    {280, 9, 9, 11, 1, -8},    // 0x3E '>'
+    {291, 9, 13, 10, 1, -12},  // 0x3F '?'
+    {306, 17, 16, 18, 1, -12}, // 0x40 '@'
+    {340, 12, 13, 12, 0, -12}, // 0x41 'A'
+    {360, 11, 13, 12, 1, -12}, // 0x42 'B'
+    {378, 11, 13, 13, 1, -12}, // 0x43 'C'
+    {396, 11, 13, 13, 1, -12}, // 0x44 'D'
+    {414, 9, 13, 11, 1, -12},  // 0x45 'E'
+    {429, 8, 13, 11, 1, -12},  // 0x46 'F'
+    {442, 12, 13, 14, 1, -12}, // 0x47 'G'
+    {462, 11, 13, 13, 1, -12}, // 0x48 'H'
+    {480, 2, 13, 5, 2, -12},   // 0x49 'I'
+    {484, 7, 13, 10, 1, -12},  // 0x4A 'J'
+    {496, 11, 13, 12, 1, -12}, // 0x4B 'K'
+    {514, 8, 13, 10, 1, -12},  // 0x4C 'L'
+    {527, 13, 13, 15, 1, -12}, // 0x4D 'M'
+    {549, 11, 13, 13, 1, -12}, // 0x4E 'N'
+    {567, 13, 13, 14, 1, -12}, // 0x4F 'O'
+    {589, 10, 13, 12, 1, -12}, // 0x50 'P'
+    {606, 13, 14, 14, 1, -12}, // 0x51 'Q'
+    {629, 12, 13, 13, 1, -12}, // 0x52 'R'
+    {649, 10, 13, 12, 1, -12}, // 0x53 'S'
+    {666, 9, 13, 11, 1, -12},  // 0x54 'T'
+    {681, 11, 13, 13, 1, -12}, // 0x55 'U'
+    {699, 11, 13, 12, 0, -12}, // 0x56 'V'
+    {717, 17, 13, 17, 0, -12}, // 0x57 'W'
+    {745, 12, 13, 12, 0, -12}, // 0x58 'X'
+    {765, 12, 13, 12, 0, -12}, // 0x59 'Y'
+    {785, 10, 13, 11, 1, -12}, // 0x5A 'Z'
+    {802, 3, 17, 5, 1, -12},   // 0x5B '['
+    {809, 5, 13, 5, 0, -12},   // 0x5C '\'
+    {818, 3, 17, 5, 0, -12},   // 0x5D ']'
+    {825, 7, 7, 8, 1, -12},    // 0x5E '^'
+    {832, 10, 1, 10, 0, 3},    // 0x5F '_'
+    {834, 4, 3, 5, 0, -12},    // 0x60 '`'
+    {836, 9, 10, 10, 1, -9},   // 0x61 'a'
+    {848, 9, 13, 10, 1, -12},  // 0x62 'b'
+    {863, 8, 10, 9, 1, -9},    // 0x63 'c'
+    {873, 8, 13, 10, 1, -12},  // 0x64 'd'
+    {886, 8, 10, 10, 1, -9},   // 0x65 'e'
+    {896, 4, 13, 5, 1, -12},   // 0x66 'f'
+    {903, 8, 14, 10, 1, -9},   // 0x67 'g'
+    {917, 8, 13, 10, 1, -12},  // 0x68 'h'
+    {930, 2, 13, 4, 1, -12},   // 0x69 'i'
+    {934, 4, 17, 4, 0, -12},   // 0x6A 'j'
+    {943, 9, 13, 9, 1, -12},   // 0x6B 'k'
+    {958, 2, 13, 4, 1, -12},   // 0x6C 'l'
+    {962, 13, 10, 15, 1, -9},  // 0x6D 'm'
+    {979, 8, 10, 10, 1, -9},   // 0x6E 'n'
+    {989, 8, 10, 10, 1, -9},   // 0x6F 'o'
+    {999, 9, 13, 10, 1, -9},   // 0x70 'p'
+    {1014, 8, 13, 10, 1, -9},  // 0x71 'q'
+    {1027, 5, 10, 6, 1, -9},   // 0x72 'r'
+    {1034, 8, 10, 9, 1, -9},   // 0x73 's'
+    {1044, 4, 12, 5, 1, -11},  // 0x74 't'
+    {1050, 8, 10, 10, 1, -9},  // 0x75 'u'
+    {1060, 9, 10, 9, 0, -9},   // 0x76 'v'
+    {1072, 13, 10, 13, 0, -9}, // 0x77 'w'
+    {1089, 8, 10, 9, 0, -9},   // 0x78 'x'
+    {1099, 9, 14, 9, 0, -9},   // 0x79 'y'
+    {1115, 7, 10, 9, 1, -9},   // 0x7A 'z'
+    {1124, 4, 17, 6, 1, -12},  // 0x7B '{'
+    {1133, 2, 17, 4, 2, -12},  // 0x7C '|'
+    {1138, 4, 17, 6, 1, -12},  // 0x7D '}'
+    {1147, 7, 3, 9, 1, -7}};   // 0x7E '~'
+
+const GFXfont FreeSans9pt7b = {10, 12};
+
+// Approx. 1822 bytes
 
 enum BlendMode
 {
@@ -89,54 +226,16 @@ enum BlendMode
     COLOR_BLEND = 2,
 };
 
-enum CollisionMode
-{
-    COLLIDE_OFF = 0,
-    COLLIDE_BOOM = 1,
-};
-
 enum ColorMode
 {
-    HSV = 1,
-    RGB = 2,
+    MODE_HSV = 1,
+    MODE_RGB = 2,
 };
-
-struct ChasePoint
-{
-    int age;
-    int pos;
-    int hue;
-    int len;
-    int speed;
-    int hue_v;
-    int bright;
-    int respawn;
-    bool wrap;
-};
-
-ChasePoint particles[MAX_PARTICLES];
-DisplayMode current_mode;
-int last_auto = 0;
 
 int r_mult = 255;
 int g_mult = 255;
 int b_mult = 255;
 
-// These are all configured during set_mode()
-ColorMode color_mode = HSV;
-CollisionMode collision_mode = COLLIDE_OFF;
-bool collide_same_direction = false;
-
-unsigned int state_loop = 0;
-unsigned int state;
-int fade_speed = 16;
-int rope_offset = 0;
-
-#define FLASH_STEP 10
-
-/**********************************************
- * Color rendering logic
- **********************************************/
 uint8_t blend(float amount, int a, int b)
 {
     float af = a / 255.0;
@@ -144,9 +243,9 @@ uint8_t blend(float amount, int a, int b)
     return (uint8_t)(255 * sqrt((1 - amount) * af * af + amount * bf * bf));
 }
 
-void rgb(int pixel, uint8_t r, uint8_t g, uint8_t b, int mode = COLOR_SET)
+void rgb(int pixel, uint8_t r, uint8_t g, uint8_t b, int mode)
 {
-    int position = (rope_offset + pixel) * 3;
+    int position = (ROPE_OFFSET + pixel) * 3;
     if (mode == COLOR_SET)
     {
         ledBuffer[position + 1] = r;
@@ -187,7 +286,7 @@ void rgb(int pixel, uint8_t r, uint8_t g, uint8_t b, int mode = COLOR_SET)
     ledBuffer[position + 2] = b;
 }
 
-void hsv(int pixel, int hue, uint8_t sat, uint8_t val, int mode = COLOR_SET)
+void hsv(int pixel, int hue, uint8_t sat, uint8_t val, int mode)
 {
     val = gamma8[(uint8_t)val];
     sat = 255 - gamma8[255 - (uint8_t)sat];
@@ -251,529 +350,131 @@ void mult_rgb(int r, int g, int b)
     b_mult = b;
 }
 
-/**********************************************
- ##############################################
- #         Setup & Message Handling           #
- ##############################################
- **********************************************/
-void switch_light(bool on)
+const uint8_t ringCount = 8;
+const uint8_t ringSize[] = {60, 52, 44, 36, 28, 20, 12, 4};
+const uint8_t ringStart[] = {0, 60, 112, 156, 192, 220, 240, 252};
+const uint8_t ringIndexOffset = 115;
+const uint8_t ringIndex[] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    16, 47, 48, 79, 80, 111, 112, 143, 144, 175, 176, 207, 208, 239, 240, 241,
+    242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 224, 223,
+    192, 191, 160, 159, 128, 127, 96, 95, 64, 63, 32, 31, 30, 29, 28, 27,
+    26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 46, 49, 78, 81, 110, 113,
+    142, 145, 174, 177, 206, 209, 238, 237, 236, 235, 234, 233, 232, 231, 230, 229,
+    228, 227, 226, 225, 222, 193, 190, 161, 158, 129, 126, 97, 94, 65, 62, 33,
+    34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 50, 77, 82, 109,
+    114, 141, 146, 173, 178, 205, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219,
+    220, 221, 194, 189, 162, 157, 130, 125, 98, 93, 66, 61, 60, 59, 58, 57,
+    56, 55, 54, 53, 52, 51, 76, 83, 108, 115, 140, 147, 172, 179, 204, 203,
+    202, 201, 200, 199, 198, 197, 196, 195, 188, 163, 156, 131, 124, 99, 92, 67,
+    68, 69, 70, 71, 72, 73, 74, 75, 84, 107, 116, 139, 148, 171, 180, 181,
+    182, 183, 184, 185, 186, 187, 164, 155, 132, 123, 100, 91, 90, 89, 88, 87,
+    86, 85, 106, 117, 138, 149, 170, 169, 168, 167, 166, 165, 154, 133, 122, 101,
+    102, 103, 104, 105, 118, 137, 150, 151, 152, 153, 134, 121, 120, 119, 136, 135};
+
+/**** === main === ****/
+// #include "main.h"
+
+unsigned long lastTime = 0;
+int state = 0;
+
+enum ANIMATION
 {
-    if (on)
+    OFF = 0,
+    SCHEDULED = 1,
+    BLOCK = 2,
+    FADE = 3,
+};
+
+ANIMATION animation = OFF;
+
+void showRing(int ring)
+{
+    for (int k = ringStart[ring]; k < ringStart[ring] + ringSize[ring]; k++)
     {
-        digitalWrite(RELAY_PIN, LOW);
+        int index = ringIndexOffset + ringIndex[k];
+        int colorIndex = ring + index + ((int)(state / 150));
+        rgb(index, 16 * (colorIndex % 16), 0, 0);
+    }
+}
+void ringHSV(int ring, int h, int s, int v)
+{
+    for (int k = ringStart[ring]; k < ringStart[ring] + ringSize[ring]; k++)
+    {
+        int index = ringIndexOffset + ringIndex[k];
+        hsv(index, h, s, v);
+    }
+}
+void loop()
+{
+    // Safe with rollover
+    unsigned long now = millis();
+    state += (now - lastTime);
+    lastTime = now;
+
+    for (int k = 0; k < ringCount; k++)
+    {
+        ringHSV(k, (k * 30 + ((int)(state / 10))) % 360, 255, 255);
+    }
+    strip.show();
+    return;
+
+    if (animation == OFF)
+    {
+        strip.clear();
     }
     else
-    {
-        digitalWrite(RELAY_PIN, HIGH);
-    }
-}
-
-void set_mode(DisplayMode mode)
-{
-    rope_clear();
-    current_mode = mode;
-
-    color_mode = HSV;
-    last_auto = 0;
-    fade_speed = 16;
-    state = 0;
-    state_loop = 0;
-    collision_mode = COLLIDE_OFF;
-    collide_same_direction = false;
-    r_mult = 0;
-    g_mult = 0;
-    b_mult = 0;
-    for (int k = 0; k < MAX_PARTICLES; k++)
-    {
-        particles[k].age = 0;
-        particles[k].len = 0;
-        particles[k].respawn = 0;
-    }
-}
-
-message LIGHT
-{
-    switch_light(true);
-}
-message ON
-{
-    switch_light(true);
-    set_mode(CHASE);
-    last_auto = millis();
-}
-message CHASE
-{
-    set_mode(CHASE);
-    for (int k = 0; k < 8; k++)
-    {
-        particles[k].pos = random(POS_SCALE * ROPE_LEDS);
-        particles[k].hue = random(360);
-        particles[k].len = 8;
-        particles[k].speed = k == 0 ? -1 : k;
-        particles[k].hue_v = 1;
-        particles[k].bright = 255;
-        particles[k].wrap = true;
-    }
-    collision_mode = COLLIDE_BOOM;
-    fade_speed = 64;
-}
-message RANDCHASE
-{
-    set_mode(CHASE);
-    // Take a random count, but make large numbers much less likely
-    int count = min(
-        random(4, MAX_PARTICLES + 1),
-        random(4, MAX_PARTICLES + 1),
-        random(2, MAX_PARTICLES + 1));
-
-    int reverse = random(count);
-    for (int k = 0; k < count; k++)
-    {
-        particles[k].pos = random(POS_SCALE * ROPE_LEDS);
-        particles[k].hue = random(360);
-        particles[k].len = random(4, 8);
-        particles[k].speed = k <= reverse ? -random(1, count) : random(1, count);
-        particles[k].hue_v = random(1);
-        particles[k].bright = random(192, 256);
-        particles[k].wrap = true;
-    }
-    collision_mode = COLLIDE_BOOM;
-    collide_same_direction = random(1) ? true : false;
-    fade_speed = 64;
-}
-message FLOWER
-{
-    set_mode(CHASE);
-    fade_speed = 2;
-    for (int k = 0; k < 2; k++)
-    {
-        particles[k].pos = 0;
-        particles[k].hue = 0;
-        particles[k].len = 50;
-        particles[k].speed = k == 0 ? -5 : +5;
-        particles[k].hue_v = 0;
-        particles[k].bright = 64;
-        particles[k].wrap = false;
-    }
-    fade_speed = 8;
-    color_mode = RGB;
-    mult_rgb(255, 0, 0);
-}
-message PULSE
-{
-    set_mode(PULSE);
-    state_loop = 512;
-}
-message SPARKLE
-{
-    set_mode(SPARKLE);
-    fade_speed = 1;
-}
-message NOISE
-{
-    set_mode(NOISE);
-}
-message FLASH
-{
-    set_mode(FLASH);
-    state_loop = (uint8_t)(512 / FLASH_STEP);
-
-    // can't handle all the lights being white, need more power
-    mult_rgb(50, 50, 50);
-}
-message RED
-{
-    mult_rgb(255, 0, 0);
-}
-message GREEN
-{
-    mult_rgb(0, 255, 0);
-}
-message BLUE
-{
-    mult_rgb(0, 0, 255);
-}
-message YELLOW
-{
-    mult_rgb(255, 255, 0);
-}
-message TURQUOISE
-{
-    mult_rgb(0, 255, 255);
-}
-message PINK
-{
-    mult_rgb(255, 0, 255);
-}
-message RAINBOW
-{
-    set_mode(RAINBOW);
-    state_loop = 360;
-}
-message RANDOM
-{
-    int next = random(NUM_DISPLAY_MODES);
-    while (next == current_mode)
-    {
-        next = random(NUM_DISPLAY_MODES);
-    }
-    set_mode(next);
-}
-message NEXT
-{
-    set_mode((current_mode + 1) % NUM_DISPLAY_MODES);
-}
-message OFF
-{
-    switch_light(false);
-    set_mode(OFF);
-}
-message AUTO
-{
-    if (current_mode >= NUM_DISPLAY_MODES)
-    {
-        set_mode(random(NUM_DISPLAY_MODES));
-    }
-    last_auto = millis() + 1;
-}
-
-message *
-{
-    if (msg[0] == '#')
-    {
-        if (strlen(msg) == 7)
-        {
-            int color[3] = {0, 0, 0};
-            int i = 0;
-            for (int k = 1; k < 7; k += 2)
-            {
-                color[i++] = hex2int(msg[k]) * 16 + hex2int(msg[k + 1]);
-            }
-            mult_rgb(color[0], color[1], color[2]);
-        }
-    }
-}
-
-/**
- * display_reset() is called after the state_loop is hit and state is reset to zero again
- */
-void display_reset(void)
-{
-    if (current_mode == FLASH)
-    {
-        set_mode(OFF);
-    }
-}
-
-void setup(void)
-{
-    Log.info("Display started!");
-    set_mode(OFF);
-}
-
-/**********************************************
- ##############################################
- #           Modes & Loop Function            #
- ##############################################
- **********************************************/
-
-void point_render(int k)
-{
-    int hue = particles[k].hue;
-    int highlight = (int)(particles[k].pos / POS_SCALE);
-    int length = min(particles[k].len, particles[k].age);
-    int bright = particles[k].bright;
-
-    // Young and dying particles fade in/out
-    if (collision_mode == COLLIDE_BOOM)
-    {
-        if (particles[k].respawn > 0)
-        {
-            if (particles[k].age > bright)
-            {
-                return;
-            }
-            bright -= particles[k].age;
-        }
-        else
-        {
-            bright = min(particles[k].age, bright);
-        }
-    }
-
-    if (!particles[k].wrap)
-    {
-        if (particles[k].speed >= 0)
-        {
-            length = min(length, highlight);
-        }
-        else
-        {
-            length = min(length, ROPE_LEDS - highlight);
-        }
-    }
-
-    if (color_mode == HSV)
-    {
-        for (int tail = 0; tail < length; tail++)
-        {
-            hsv(
-                (highlight - (particles[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
-                hue, 255, (bright * (length - tail)) / length,
-                COLOR_ADD);
-        }
-    }
-    else if (color_mode == RGB)
-    {
-        for (int tail = 0; tail < length; tail++)
-        {
-            int tailBright = (bright * (length - tail)) / length;
-            rgb(
-                (highlight - (particles[k].speed >= 0 ? tail : -tail) + ROPE_LEDS) % ROPE_LEDS,
-                min(r_mult, bright), min(g_mult, bright), min(b_mult, bright),
-                COLOR_ADD);
-        }
-    }
-    else
-    {
-        Log.info("Unknown color_mode");
-    }
-}
-
-int distance(int k, int j)
-{
-    int d = abs(k - j);
-    return min(d, ROPE_LEDS - d);
-}
-
-mode OFF
-{
-    rope_rgb(0, 0, 0);
-}
-
-mode GLOW
-{
-    for (int k = 0; k < ROPE_LEDS; k++)
-    {
-        if (k < 200 && k % 2 == 0)
-        {
-            rgb(k, r_mult, g_mult, b_mult);
-        }
-        else
-        {
-            rgb(k, 0, 0, 0);
-        }
-    }
-}
-message GLOW
-{
-    set_mode(GLOW);
-    mult_rgb(200, 120, 30);
-}
-
-mode PULSE
-{
-    int pulse = 0;
-    if (state < 256)
-    {
-        pulse = state % 256;
-    }
-    else
-    {
-        pulse = 255 - (state - 256) % 256;
-    }
-
-    rope_rgb(min(32 + pulse, 255), 0, 0);
-}
-mode SPARKLE
-{
-    if (state % 5 == 0)
-    {
-        hsv(random(ROPE_LEDS), random(360), 255, random(96, 256), COLOR_ADD);
-    }
-    if (state % 2 == 0)
     {
         rope_fade(1);
+        mult_rgb(96, 96, 96);
     }
-    delay(10);
-}
-mode NOISE
-{
-    for (int i = 0; i < ROPE_LEDS; i++)
+
+    if (animation == BLOCK)
     {
-        uint8_t value = gamma8_floor[random(256)];
-        rgb(i, value, value, value);
+        int ring = (int)(state / 1000);
+        if (ring >= ringCount)
+        {
+            animation = FADE;
+        }
+        else
+        {
+            showRing(ringCount - ring - 1);
+        }
     }
-}
-mode FLASH
-{
-    int partial = 0;
-    int flashState = state * FLASH_STEP;
-    int bright = min(255, (flashState > 255 ? 512 - flashState : flashState));
-
-    for (int i = 0; i < ROPE_LEDS; i++)
+    else if (animation == SCHEDULED)
     {
-        uint8_t value = gamma8_floor[bright];
-
-        partial = gamma8_partial[bright];
-        if (partial >= 128 && i % 2 == 0)
-        {
-            value += 1;
-        }
-        else if (partial >= 64 && i % 4 == 0)
-        {
-            value += 1;
-        }
-        else if (partial >= 32 && i % 8 == 0)
-        {
-            value += 1;
-        }
-        else if (partial >= 16 && i % 16 == 0)
-        {
-            value += 1;
-        }
-
-        rgb(i, min(r_mult, value), min(g_mult, value), min(b_mult, value));
+        showRing(ringCount - 1);
     }
+    strip.show();
 }
 
-mode RAINBOW
+void madeAttest(const char *event, const char *data)
 {
-    particles[0].pos = (particles[0].pos + 1) % ROPE_LEDS;
-    int dark = particles[0].pos;
-
-    for (int k = 0; k < ROPE_LEDS; k++)
+    if (animation == OFF)
     {
-        int dist = distance(k, dark);
-        hsv(k, (state + k) % 360, 255, dist < 25 ? 255 - 10 * (25 - dist) : 255);
+        animation = FADE;
     }
-    delay(50);
+    hsv(random(ROPE_LEDS), random(360), 255, 255);
+}
+void madeBlock(const char *event, const char *data)
+{
+    animation = BLOCK;
+    state = 0;
+}
+void scheduledBlock(const char *event, const char *data)
+{
+    animation = SCHEDULED;
+    state = 0;
 }
 
-mode CHASE
+void setup()
 {
-    rope_fade(fade_speed);
-
-    for (int k = 0; k < MAX_PARTICLES; k++)
-    {
-        if (particles[k].len == 0)
-        {
-            continue;
-        }
-
-        if (particles[k].respawn > 0)
-        {
-            particles[k].respawn--;
-            if (particles[k].respawn == 0)
-            {
-                particles[k].age = 0;
-                particles[k].pos = random(POS_MAX);
-            }
-        }
-        point_render(k);
-        if (particles[k].age < UINT_MAX)
-        {
-            particles[k].age++;
-        }
-
-        if (particles[k].respawn > 0)
-        {
-            continue;
-        }
-
-        // Manage particle age and color
-        particles[k].hue = (particles[k].hue + particles[k].hue_v + 360) % 360;
-
-        // Area slowdown: This was initially intended so that the lines would match up, but the numbers
-        // to achieve that are slightly off.
-        int pos = particles[k].pos / POS_SCALE;
-        if (state % 3 == 0 && pos >= 200 && pos <= 250)
-        {
-            continue;
-        }
-
-        int prevPos = particles[k].pos;
-        int nextPos = (particles[k].pos + particles[k].speed + POS_MAX) % POS_MAX;
-        particles[k].pos = nextPos;
-
-        // This respawn logic is particularly weak, but it's a nice start
-        if (collision_mode != COLLIDE_BOOM)
-        {
-            continue;
-        }
-        for (int j = 0; j < MAX_PARTICLES; j++)
-        {
-            if (k == j || particles[j].len == 0 || particles[j].age < 256 || particles[j].respawn != 0)
-            {
-                continue;
-            }
-            bool collided = (((prevPos < particles[j].pos && nextPos >= particles[j].pos) || (prevPos > particles[j].pos && nextPos <= particles[j].pos)) && abs((prevPos - nextPos) < POS_MAX / 2) &&
-                             (collide_same_direction || particles[k].speed * particles[j].speed < 0));
-            if (collided)
-            {
-                Log.info("Boom!");
-                // Set the particles to respawn, but give enough time to fade out
-                particles[k].respawn = 256 + random(256);
-                particles[k].age = 0;
-
-                particles[j].respawn = 256 + random(256);
-                particles[j].age = 0;
-            }
-        }
-    }
-}
-
-mode LEDS
-{
-    for (int k = 0; k < ROPE_LEDS; k++)
-    {
-        if (k % 25 == 0)
-        {
-            rgb(k, 255, 255, 255);
-        }
-        else if (k % 10 == 0)
-        {
-            rgb(k, 255, 0, 0);
-        }
-        else if (k % 5 == 0)
-        {
-            rgb(k, 0, 255, 0);
-        }
-        else if (k % 2 == 0)
-        {
-            rgb(k, 0, 0, 255);
-        }
-    }
-}
-
-mode JOIN_HALVES
-{
-    int half = ROPE_LEDS / 2;
-    for (int k = 0; k < half; k++)
-    {
-        hsv(k, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
-        hsv(ROPE_LEDS - k - 1, (state + k) % 360, 255, k < (state % half) ? 255 : 0);
-    }
-}
-
-void loop(void)
-{
-    if (last_auto > 0)
-    {
-        if (millis() - last_auto > 5000)
-        {
-            set_mode((current_mode + 1) % NUM_DISPLAY_MODES);
-            last_auto = millis();
-        }
-    }
-
-    // This calls the mode function for the `current_mode`
-    render_mode();
-
-    state = (uint16_t)(state + 1);
-    if (state_loop && state >= state_loop)
-    {
-        state = 0;
-        display_reset();
-    }
+    strip.begin();
+    strip.show(); // Initialize all pixels to 'off'
+    ledBuffer = strip.getPixels();
+    Particle.subscribe("eth2/attest", madeAttest);
+    Particle.subscribe("eth2/block", madeBlock);
+    Particle.subscribe("eth2/scheduled", scheduledBlock);
+    animation = BLOCK;
+    state = 0;
 }

@@ -24,6 +24,16 @@ export interface Location {
   };
 }
 
+export function locInvariant(
+  location: Location,
+  test: any,
+  message: string
+): asserts test is true {
+  if (!test) {
+    throw new Error(message + "\nAt line " + location.start.line);
+  }
+}
+
 export class Return {
   constructor(readonly expr: Expr | null, readonly location: Location) {}
   transpile(ctx: Context) {
@@ -147,8 +157,14 @@ export class DefineArray {
     readonly size: Expr | null,
     readonly values: Expr[] | null,
     readonly location: Location
-  ) {
-    invariant(size || values.length, "Either size or values must be provided");
+  ) {}
+
+  check() {
+    locInvariant(
+      this.location,
+      this.size || this.values,
+      "Either size or values must be provided"
+    );
   }
 
   transpile(ctx: Context) {
@@ -156,6 +172,9 @@ export class DefineArray {
     if (this.values) {
       init = this.values
         .map((val) => {
+          if (val instanceof StructValues) {
+            return val.transpileForType(type);
+          }
           return val.transpile(ctx);
         })
         .join(",");
@@ -220,6 +239,12 @@ export class DefineVar {
 
   transpile(ctx: Context) {
     const keyword = this.constant ? "const" : "let";
+
+    if (this.value instanceof StructValues) {
+      return `${keyword} ${this.id} = ${this.value.transpileForType(
+        this.type
+      )};`;
+    }
     return (
       `${keyword} ${this.id}` +
       (this.value ? `= ${this.value.transpile(ctx)}` : "")
@@ -257,6 +282,22 @@ export class Struct {
         return [v.id, DEFAULTS[v.type]];
       })
     );
+  }
+}
+
+export class StructValues {
+  constructor(readonly values: Expr[], readonly location: Location) {}
+
+  transpile() {
+    locInvariant(
+      this.location,
+      false,
+      "Structure definiton cannot be used as an expression"
+    );
+  }
+
+  transpileForType(type: string) {
+    return `[Struct ${type}]`;
   }
 }
 

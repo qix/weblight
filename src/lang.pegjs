@@ -30,7 +30,15 @@ ClosedStatement = _? statement:Statement _? ";" {
     return statement;
 }
 
-Statement = Return / Enum / Struct / DefineArray / DefineVar / Expr;
+Statement = (
+  Return /
+  Enum /
+  Struct /
+  TypedefStruct /
+  DefineArray /
+  DefineVar /
+  Expr
+);
 
 Message = "message" _ name:(Id / "*") _? block:Block {
   return new Message(name, block, location());
@@ -43,21 +51,28 @@ Enum = "enum" _ name:Id _? "{" _? first:SimpleAssign rest:(_? "," _? SimpleAssig
     return new Enum(name, [first, ...rest.map(r => r[3])], location());
 }
 
-Struct = "struct" _ name:Id _? "{" _? first:DefineVar _? ";" rest:(_? DefineVar _? ";")* _? "}" {
-    return new Struct(name, [first, ...rest.map(r => r[1])], location());
+StructDef = "{" _? first:DefineVar _? ";" rest:(_? DefineVar _? ";")* _? "}" {
+  return [first, ...rest.map(r => r[1])];
 }
 
-DefineArray = ("const" _)? type:Type _ id:Id "[" _? size:Expr? _? "]" values:(_? "=" _? "{" _? ExprList _? "}")? {
+TypedefStruct = "typedef" _ "struct" _? def:StructDef _? name:Id {
+    return new Struct(name, def, location());
+}
+Struct = "struct" _ name:Id _? def:StructDef {
+    return new Struct(name, def, location());
+}
+
+DefineArray = ("const" _)? type:Type _? id:Id "[" _? size:Expr? _? "]" values:(_? "=" _? StructValuesExpr)? {
     return new DefineArray(
       type,
       id,
       size ?? null,
-      values ? values[5] : null,
+      values ? values[3].values : null,
       location()
     );
 }
 
-DefineVar = constant:("const" _)? type:Type _ id:Id assign:(_? "=" _? Expr)? {
+DefineVar = constant:("const" _)? type:Type _? id:Id assign:(_? "=" _? (Expr / StructValuesExpr))? {
     return new DefineVar(!!constant, type, id, assign ? assign[3] : null, location());
 }
 
@@ -73,18 +88,30 @@ Return = "return" expr:(_ Expr)? {
     return new Return(expr ? expr[1] : null, location());
 }
 
-NoArgs = "void" {
+NoArgs = "void" / "" {
     return [];
 }
 ArgList = first:Arg rest:(_? "," _? Arg)* {
   return [first, ...rest.map(item => item[3])];
 }
 
-Arg = type:Type _ star:"*"? id:Id defaultExpr:(_? "=" _? expr:Expr)? {
+Arg = type:Type _? star:"*"? id:Id defaultExpr:(_? "=" _? expr:Expr)? {
     return new Arg(type + (star ?? ''), id, defaultExpr ? defaultExpr[3] : null, location());
 }
 
-Type = ("char" / "void" / "uint8_t" / "float" / ("unsigned" _)? "int" / Id) {
+Type = (
+  ("const" _)?
+  (
+    "char" /
+    "void" / 
+    "u"? "int" ("8" / "16") "_t" /
+    "float" /
+    ("unsigned" _)? ("int" / "long") /
+    Id
+  )
+  ![a-zA-Z0-9]
+  (_? "*")*
+) {
     return text();
 };
 
@@ -127,6 +154,7 @@ PostfixExpr = expr:PrimaryExpr post:PostfixOperator* {
 }
 
 PostfixOperator = PostIncr / ObjAccessor / ArrAccessor / CallExpr
+
 PostIncr = _? op:("++" / "--") {
   return expr => new UnaryOp(expr, ('X' + op) as ("X++" | "X--"), location());
 }
@@ -252,7 +280,6 @@ ConditionalExpr = first:LogicOrExpr rest:(_? "?" _? Expr _? ":" _? LogicOrExpr)*
 }
 
 
-
 SimpleAssign = v:Variable _? "=" _? expr:Expr {
     return new Assign(v, expr, location());
 };
@@ -268,13 +295,20 @@ Assigment = left:UnaryExpr _? op:(
 }
 AssignmentExpr = Assigment / ConditionalExpr;
 
-
 // {@todo}
 TypeName = Id
 
 Expr = AssignmentExpr
 
 ExprList = first:Expr rest:(_? "," _? Expr)* {
+  return [first, ...rest.map(item => item[3])];
+}
+
+StructValuesExpr = "{" _? values:DefExprList _? "}" {
+  return new StructValues(values, location());
+}
+DefExpr = StructValuesExpr / CastExpr
+DefExprList = first:DefExpr rest:(_? "," _? DefExpr)* {
   return [first, ...rest.map(item => item[3])];
 }
 
@@ -337,7 +371,11 @@ False "false" = "false" {
   return false;
 }
 
-Number "number" = Float / Int
+HexNumber = "0x" HexDigit+ {
+  return parseInt(text().substring(2), 16);
+}
+
+Number "number" = HexNumber / Float / Int
 
 Int = Zero / [-+]?[1-9][0-9]* {
   return parseInt(text(), 10);

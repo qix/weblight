@@ -5,12 +5,16 @@ const COMPILE_DEBOUNCE_MS = 15;
 export interface CompileRequest {
   type: "compile";
   source: string;
+  ledCount: number;
 }
 export interface MessageRequest {
   type: "message";
   message: string;
 }
-export type Request = CompileRequest | MessageRequest;
+export interface NextRenderRequest {
+  type: "rendered";
+}
+export type Request = CompileRequest | MessageRequest | NextRenderRequest;
 
 export interface CompileOkay {
   type: "compileOkay";
@@ -60,10 +64,13 @@ function tryRuntime(cb: () => void) {
   }
 }
 
+let nextRender = true;
 addEventListener("message", (event) => {
   const message = event.data as Request;
 
-  if (message.type === "compile") {
+  if (message.type === "rendered") {
+    nextRender = true;
+  } else if (message.type === "compile") {
     const { source } = message;
     if (compileTimeout) {
       clearTimeout(compileTimeout);
@@ -71,6 +78,7 @@ addEventListener("message", (event) => {
     compileTimeout = setTimeout(() => {
       try {
         controller = createController(source, {
+          ledCount: message.ledCount,
           log: (format: string, ...args: any[]) => {
             respond({
               type: "log",
@@ -78,6 +86,15 @@ addEventListener("message", (event) => {
               format,
               args,
             });
+          },
+          render() {
+            if (nextRender) {
+              respond({
+                type: "render",
+                buffer: controller.ledBuffer,
+              });
+              nextRender = false;
+            }
           },
         });
         respond({
@@ -120,11 +137,6 @@ setInterval(() => {
   if (controller) {
     tryRuntime(() => {
       controller.loop();
-
-      respond({
-        type: "render",
-        buffer: controller.ledBuffer,
-      });
     });
   }
 }, 25);

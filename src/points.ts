@@ -1,4 +1,29 @@
-const POINTS_SVG = [
+
+
+function range(v) {
+  return Array.from(Array(v).keys());
+}
+
+
+const FLOWER_SVG = [
+  ...(range(115).map(i => {
+    return { x: 7, y: (115 + 15) - i };
+  })),
+];
+
+range(16).forEach(x => {
+  range(16).forEach(y => {
+    if (x % 2 == 1) {
+      y = 15 - y;
+    }
+    FLOWER_SVG.push({
+      x,
+      y,
+    })
+  })
+});
+
+const FUNKY_SVG = [
   { x: 130.299, y: 255.666 },
   { x: 129.048, y: 252.932 },
   { x: 127.607, y: 250.288 },
@@ -301,11 +326,15 @@ const POINTS_SVG = [
   { x: 126.658, y: 253.871 },
 ];
 
+const POINTS_SVG = FLOWER_SVG;
 const MIN_X = Math.min(...POINTS_SVG.map((p) => p.x));
 const MAX_X = Math.max(...POINTS_SVG.map((p) => p.x));
 const MIN_Y = Math.min(...POINTS_SVG.map((p) => p.y));
 const MAX_Y = Math.max(...POINTS_SVG.map((p) => p.y));
 
+export function getCoordCount() {
+  return POINTS_SVG.length;
+}
 export function generateCoords(width: number, height: number) {
   const padding = Math.min(50, width * 0.05, height * 0.05);
   const scale = Math.min(

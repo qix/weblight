@@ -45,7 +45,13 @@ export class Controller {
 
 export function compile(source: string, inputNames: string[]) {
   const ctx = new Context();
-  const ast = parse(source);
+  let ast: Block;
+  try {
+    ast = parse(source);
+  } catch (err) {
+    console.log(err.location);
+    throw err;
+  }
   let transpiled = ast.statements.map((s) => s.transpile(ctx)).join("\n");
 
   // Genate source code for each message
@@ -106,7 +112,9 @@ export function compile(source: string, inputNames: string[]) {
 export function createController(
   source: string,
   options: {
+    ledCount: number;
     log: (format: string, ...args: any) => void;
+    render: () => void;
   }
 ) {
   // These values are used to produce better colors in lights, since the birghtness is not
@@ -115,7 +123,7 @@ export function createController(
   const gamma8_floor = Array.from(Array(256)).map((v, idx) => idx);
   const gamma8_partial = Array.from(Array(256)).fill(0);
 
-  const ROPE_LEDS = 300;
+  const ROPE_LEDS = options.ledCount;
   const ledBuffer = new Uint8Array(ROPE_LEDS * 3);
 
   const inputs = {
@@ -132,9 +140,6 @@ export function createController(
       }
       return min + Math.floor(Math.random() * (max - min));
     },
-    rope_clear() {
-      ledBuffer.fill(0);
-    },
     gamma8,
     gamma8_floor,
     gamma8_partial,
@@ -144,7 +149,27 @@ export function createController(
     max(a: number, b: number) {
       return Math.max(a, b);
     },
-    log: options.log,
+    Particle: {
+      subscribe(name, callback) {
+        options.log(`${name} event created`);
+      },
+    },
+    Log: {
+      info: options.log,
+    },
+    strip: {
+      getPixels() {
+        return ledBuffer;
+      },
+      begin() {},
+      clear() {
+        ledBuffer.fill(0);
+      },
+      show() {
+        console.log("Send render");
+        options.render();
+      },
+    },
     uint8(value: number) {
       return value & 255;
     },
