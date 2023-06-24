@@ -138,9 +138,9 @@ void setup()
     strip.begin();
     strip.show(); // Initialize all pixels to 'off'
     ledBuffer = strip.getPixels();
-    Particle.subscribe("eth2/attest", madeAttest);
-    Particle.subscribe("eth2/block", madeBlock);
-    Particle.subscribe("eth2/scheduled", scheduledBlock);
+    Particle.subscribe("show/eth2-attest", madeAttest);
+    Particle.subscribe("show/eth2-block", madeBlock);
+    Particle.subscribe("show/eth2-scheduled", scheduledBlock);
     animation = OFF;
     lastTime = millis();
     ms = 0;
